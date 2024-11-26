@@ -188,7 +188,7 @@ class FTPServer:
             elif command =="HELP":
                 pass
             elif command =="NOOP":
-                pass
+                response = "200 OK\r\n"
             else:
                 response = "502 Comando no implementado\r\n"
 
