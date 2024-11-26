@@ -61,7 +61,7 @@ QUIT <CRLF>
 REIN <CRLF>
 PORT <SP> <dirIP-puerto> <CRLF>
 PASV <CRLF>
-TYPE <SP> <código-tipo> <CRLF>
+ok        TYPE <SP> <código-tipo> <CRLF>
 STRU <SP> <código-estructura> <CRLF>
 MODE <SP> <código-modo> <CRLF>
 RETR <SP> <nombre-ruta> <CRLF>
@@ -81,10 +81,10 @@ PWD  <CRLF>
 LIST [<SP> <nombre-ruta>] <CRLF>
 NLST [<SP> <nombre-ruta>] <CRLF>
 SITE <SP> <cadena> <CRLF>
-SYST <CRLF>
+ok        SYST <CRLF>
 STAT [<SP> <nombre-ruta>] <CRLF>
-HELP [<SP> <cadena>] <CRLF>
-NOOP <CRLF>
+ok        HELP [<SP> <cadena>] <CRLF>
+ok        NOOP <CRLF>
 '''
 
 # Configuración del servidor
@@ -99,6 +99,7 @@ class FTPServer:
     def __init__(self, host, port):
         self.host = host
         self.port = port
+        self.data_type='ASCII'
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     def start(self):
@@ -196,9 +197,40 @@ class FTPServer:
             elif command =="STAT":
                 pass
             elif command =="HELP":
-                response= '214 The following commands are recognized.\r\n'
-                response+='\r\n'
-                response+='\r\n'
+                response= '214 The following commands are recognized.\r\n'                
+                response+='USER <SP> <nombre-usuario> <CRLF>\r\n'
+                response+='PASS <SP> <contraseña> <CRLF>\r\n'
+                response+='ACCT <SP> <información-cuenta> <CRLF>\r\n'
+                response+='CWD  <SP> <nombre-ruta> <CRLF>\r\n'
+                response+='CDUP <CRLF>\r\n'
+                response+='SMNT <SP> <nombre-ruta> <CRLF>\r\n'
+                response+='QUIT <CRLF>\r\n'
+                response+='REIN <CRLF>\r\n'
+                response+='PORT <SP> <dirIP-puerto> <CRLF>\r\n'
+                response+='PASV <CRLF>\r\n'
+                response+='TYPE <SP> <código-tipo> <CRLF>\r\n'
+                response+='STRU <SP> <código-estructura> <CRLF>\r\n'
+                response+='MODE <SP> <código-modo> <CRLF>\r\n'
+                response+='RETR <SP> <nombre-ruta> <CRLF>\r\n'
+                response+='STOR <SP> <nombre-ruta> <CRLF>\r\n'
+                response+='STOU <CRLF>\r\n'
+                response+='APPE <SP> <nombre-ruta> <CRLF>\r\n'
+                response+='ALLO [<SP> <entero-decimal>] | [<SP> R <SP> <entero-decimal>] <CRLF>\r\n'
+                response+='REST <SP> <marcador> <CRLF>\r\n'
+                response+='RNFR <SP> <nombre-ruta> <CRLF>\r\n'
+                response+='RNTO <SP> <nombre-ruta> <CRLF>\r\n'
+                response+='ABOR <CRLF>\r\n'
+                response+='DELE <SP> <nombre-ruta> <CRLF>\r\n'
+                response+='RMD  <SP> <nombre-ruta> <CRLF>\r\n'
+                response+='MKD  <SP> <nombre-ruta> <CRLF>\r\n'
+                response+='PWD  <CRLF>\r\n'
+                response+='LIST [<SP> <nombre-ruta>] <CRLF>\r\n'
+                response+='NLST [<SP> <nombre-ruta>] <CRLF>\r\n'
+                response+='SITE <SP> <cadena> <CRLF>\r\n'
+                response+='SYST <CRLF>\r\n'
+                response+='STAT [<SP> <nombre-ruta>] <CRLF>\r\n'
+                response+='HELP [<SP> <cadena>] <CRLF>\r\n'
+                response+='NOOP <CRLF>\r\n'
                 response+='214 Help OK.\r\n'
             elif command =="NOOP":
                 response = "200 OK\r\n"
