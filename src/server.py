@@ -77,7 +77,7 @@ ABOR <CRLF>
 DELE <SP> <nombre-ruta> <CRLF>
 RMD  <SP> <nombre-ruta> <CRLF>
 MKD  <SP> <nombre-ruta> <CRLF>
-PWD  <CRLF>
+ok        PWD  <CRLF>
 LIST [<SP> <nombre-ruta>] <CRLF>
 NLST [<SP> <nombre-ruta>] <CRLF>
 SITE <SP> <cadena> <CRLF>
@@ -130,7 +130,7 @@ class FTPServer:
             elif command == "PASS":
                 pass
             elif command == "PWD":
-                pass
+                response = f'257 "{cwd}"\r\n'
             elif command == "CWD":
                 pass
             elif command == "LIST":
