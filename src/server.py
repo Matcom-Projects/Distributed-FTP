@@ -153,8 +153,15 @@ class FTPServer:
             elif command =="PASV":
                 pass
             elif command =="TYPE":
-                system_name = platform.system()
-                response = f'215 {system_name} Type: L8\r\n'
+                data_type = data.split()[1]
+                if data_type == 'A':
+                    self.data_type = 'ASCII'
+                    response = '200 Type set to ASCII.\r\n'
+                elif data_type == 'I':
+                    self.data_type = 'Binary'
+                    response = '200 Type set to Binary.\r\n'
+                else:
+                    response = '504 Type not implemented.\r\n'
             elif command =="STRU":
                 pass
             elif command =="MODE":
@@ -184,11 +191,15 @@ class FTPServer:
             elif command =="SITE":
                 pass
             elif command =="SYST":
-                pass
+                system_name = platform.system()
+                response = f'215 {system_name} Type: L8\r\n'
             elif command =="STAT":
                 pass
             elif command =="HELP":
-                pass
+                response= '214 The following commands are recognized.\r\n'
+                response+='\r\n'
+                response+='\r\n'
+                response+='214 Help OK.\r\n'
             elif command =="NOOP":
                 response = "200 OK\r\n"
             else:
