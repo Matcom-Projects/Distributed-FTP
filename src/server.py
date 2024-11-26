@@ -54,7 +54,7 @@ return_codes={
 USER <SP> <nombre-usuario> <CRLF>
 PASS <SP> <contraseña> <CRLF>
 ACCT <SP> <información-cuenta> <CRLF>
-CWD  <SP> <nombre-ruta> <CRLF>
+ok        CWD  <SP> <nombre-ruta> <CRLF>
 CDUP <CRLF>
 SMNT <SP> <nombre-ruta> <CRLF>
 QUIT <CRLF>
@@ -134,7 +134,15 @@ class FTPServer:
                 relative_dir = os.path.relpath(current_dir, os.path.join(os.getcwd(), self.cwd))
                 response = f'257 {relative_dir}\r\n'
             elif command == "CWD":
-                pass
+                if args:
+                    new_dir = os.path.abspath(os.path.join(current_dir, args[0]))
+                    if os.path.exists(new_dir) and os.path.isdir(new_dir):
+                        current_dir = new_dir
+                        response = "250 Directory successfully changed.\r\n"
+                    else:
+                        response = "550 Failed to change directory.\r\n"
+                else:
+                    response = "501 Syntax error in parameters or arguments.\r\n"
             elif command == "LIST":
                 pass
             elif command == "RETR":
@@ -235,9 +243,9 @@ class FTPServer:
                 response+='NOOP <CRLF>\r\n'
                 response+='214 Help OK.\r\n'
             elif command =="NOOP":
-                response = "200 OK\r\n"
+                response = "200 OK.\r\n"
             else:
-                response = "502 Comando no implementado\r\n"
+                response = "502 Command not implemented.\r\n"
 
             client_socket.send(response.encode())
 
