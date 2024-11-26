@@ -101,6 +101,7 @@ class FTPServer:
         self.port = port
         self.data_type='ASCII'
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.cwd=ROOT_DIR
 
     def start(self):
         self.server_socket.bind((self.host, self.port))
@@ -112,7 +113,7 @@ class FTPServer:
             threading.Thread(target=self.handle_client, args=(client_socket,)).start()
 
     def handle_client(self, client_socket):
-        cwd = ROOT_DIR
+        current_dir = self.cwd
         client_socket.send(b"220 Servicio FTP listo\r\n")
         
         while True:
@@ -130,7 +131,8 @@ class FTPServer:
             elif command == "PASS":
                 pass
             elif command == "PWD":
-                response = f'257 "{cwd}"\r\n'
+                relative_dir = os.path.relpath(current_dir, os.path.join(os.getcwd(), self.cwd))
+                response = f'257 {relative_dir}\r\n'
             elif command == "CWD":
                 pass
             elif command == "LIST":
