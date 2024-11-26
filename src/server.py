@@ -1,6 +1,7 @@
 import os
 import socket
 import threading
+import platform
 
 return_codes={
 	100: "The requested action is being initiated, expect another reply before proceeding with a new command.",
@@ -152,7 +153,8 @@ class FTPServer:
             elif command =="PASV":
                 pass
             elif command =="TYPE":
-                pass
+                system_name = platform.system()
+                response = f'215 {system_name} Type: L8\r\n'
             elif command =="STRU":
                 pass
             elif command =="MODE":
