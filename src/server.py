@@ -120,11 +120,11 @@ class FTPServer:
         client_socket.send(b"220 FTP service ready.\r\n")
         
         while True:
-            data = client_socket.recv(1024).decode().strip()
+            data = client_socket.recv(1024).decode()
             if not data:
                 break
 
-            print(f"Comando recibido: {data}")
+            print(f"Comando recibido: {data.strip()}")
             command, *args = data.split()
             command = command.upper()
             response = ""
@@ -141,7 +141,16 @@ class FTPServer:
                 else:
                     response = '530 User incorrect.\r\n'
             elif command == "PASS":
-                pass
+                password = data.split()[1]
+                if self.admin.get(username) == password:
+                    authenticated = True
+                    response='230 User logged in.\r\n'
+                elif self.users.get(username) == password:
+                    authenticated = True
+                    authenticated_admin = True
+                    response='230 Admin logged in.\r\n'
+                else:
+                    response='530 Password incorrect in.\r\n'
             elif not authenticated:
                 response = '530 Not logged in.\r\n'
             elif command == "PWD":
@@ -278,7 +287,7 @@ class FTPServer:
         print("Conexión cerrada")
 
 if __name__ == "__main__":
-    ftp_server = FTPServer(HOST, PORT)
+    ftp_server = FTPServer(HOST, PORT,{'user': 'user1234'},{'admin': 'admin1234'})
     try:
         ftp_server.start()
     except KeyboardInterrupt:
