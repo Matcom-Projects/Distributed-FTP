@@ -184,7 +184,11 @@ class FTPServer:
             elif command =="SMNT":
                 pass
             elif command =="REIN":
-                pass
+                authenticated = False
+                authenticated_admin=False
+                username = ''
+                self.data_type = 'ASCII'
+                response = '220 Service ready for new user.\r\n'
             elif command =="PORT":
                 try:
                     data = args[0].split(',')
