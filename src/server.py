@@ -52,8 +52,6 @@ return_codes={
 
 '''Las órdenes FTP son las siguientes:
 SMNT <SP> <nombre-ruta> <CRLF>
-REIN <CRLF>
-STRU <SP> <código-estructura> <CRLF>
 MODE <SP> <código-modo> <CRLF>
 RETR <SP> <nombre-ruta> <CRLF>
 STOR <SP> <nombre-ruta> <CRLF>
@@ -87,6 +85,7 @@ class FTPServer:
         self.port = port
         self.data_port=0
         self.data_type='ASCII'
+        self.restart_point = 0
         self.users=users
         self.admin=admin
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -127,6 +126,8 @@ class FTPServer:
                     response= '331 Admin name okay, need password.\r\n'
                 else:
                     response = '530 User incorrect.\r\n'
+
+
             elif command == "PASS":
                 password = args[0]
                 if self.admin.get(username) == password:
@@ -137,11 +138,17 @@ class FTPServer:
                     response='230 Admin logged in.\r\n'
                 else:
                     response='530 Password incorrect in.\r\n'
+
+
             elif not authenticated and not authenticated_admin:
                 response = '530 Not logged in.\r\n'
+
+
             elif command == "PWD":
                 relative_dir = os.path.relpath(current_dir, os.path.join(os.getcwd(), self.cwd))
                 response = f'257 {relative_dir}\r\n'
+
+
             elif command == "CWD":
                 if args:
                     new_dir = os.path.abspath(os.path.join(current_dir, args[0]))
@@ -152,6 +159,8 @@ class FTPServer:
                         response = "550 Failed to change directory.\r\n"
                 else:
                     response = "501 Syntax error in parameters or arguments.\r\n"
+
+
             elif command == "LIST":
                 try:
                     response = "150 Here comes the directory listing.\r\n"
@@ -165,30 +174,81 @@ class FTPServer:
                     response = "226 List of files sent successfully.\r\n"
                 except Exception as e:
                     response = f"550 Error al listar archivos: {e}\r\n"
+
+
             elif command == "RETR":
-                pass
+                filename = args[0]
+                file_path = os.path.abspath(os.path.join(current_dir, filename))
+
+                if not os.path.exists(file_path):
+                    response = '550 File not found.\r\n'
+                    continue
+
+                try:  
+                    client_socket.sendall(b'150 File status okay; about to open data connection.\r\n')
+                    data_transfer, _ = self.data_socket.accept()
+
+                    mode = 'rb' if self.data_type == 'Binary' else 'r'
+                    with open(file_path, mode) as file:
+                        file.seek(self.restart_point)
+                        self.restart_point = 0
+
+                        while True:
+                            down_data = file.read(1024)
+                            if not down_data:
+                                break
+                            if self.data_type == 'ASCII':
+                                down_data = down_data.encode()
+                            data_transfer.sendall(down_data)
+                                
+                    data_transfer.close()
+                    response ='226 Transfer complete.\r\n'
+
+                except Exception as e:
+                    response ='550 Failed to retrieve file.\r\n'
+                    print(f'Error retrieving file: {e}')
+                    if data_transfer:
+                        data_transfer.close()
+
+
             elif command == "STOR":
                 pass
+
+
             elif command == "QUIT":
                 response = "221 Closing connection, goodbye.\r\n"
                 client_socket.send(response.encode())
                 break
+
+
             elif command =="ACCT":
-                response = '211 Account status.\r\n'
+                response = '211 Account status.\r\n' 
                 response += f'Name: {username}\r\n'
-                response += f'Password: {self.users[username]}\r\n'
+                if authenticated:
+                    response += f'Password: {self.users[username]}\r\n'
+                else:
+                    response += f'Password: {self.admin[username]}\r\n'
                 response += '211 End of account status.\r\n'
+
+
             elif command =="CDUP":
                 current_dir = os.path.abspath(os.path.join(current_dir, os.pardir))
                 response = '200 Directory changed to parent directory.\r\n'
+
+
             elif command =="SMNT":
                 pass
+
+
             elif command =="REIN":
                 authenticated = False
                 authenticated_admin=False
                 username = ''
                 self.data_type = 'ASCII'
+                self.restart_point = 0
                 response = '220 Service ready for new user.\r\n'
+
+
             elif command =="PORT":
                 try:
                     data = args[0].split(',')
@@ -200,6 +260,8 @@ class FTPServer:
                 except Exception as e:
                     response = '425 Can not open data connection.\r\n'
                     print(f'Error opening data connection: {e}')
+
+
             elif command =="PASV":
                 try:
                     self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -213,6 +275,8 @@ class FTPServer:
                 except Exception as e:
                     response= '425 Can not open data connection\r\n'
                     print(f'Error entering passive mode: {e}')
+
+
             elif command =="TYPE":
                 data_type = args[0]
                 if data_type == 'A':
@@ -223,43 +287,77 @@ class FTPServer:
                     response = '200 Type set to Binary.\r\n'
                 else:
                     response = '504 Type not implemented.\r\n'
+
+
             elif command =="STRU":
                 structure_type = args[0]
                 if structure_type == 'F':
                     response= '200 File structure set to F.\r\n'
                 else:
                     response='504 Structure not implemented.\r\n'
+
+
             elif command =="MODE":
                 pass
+
+
             elif command =="STOU":
                 pass
+
+
             elif command =="APPE":
                 pass
+
+
             elif command =="ALLO":
                 pass
+
+
             elif command =="REST":
                 pass
+
+
             elif command =="RNFR":
                 pass
+
+
             elif command =="RNTO":
                 pass
+
+
             elif command =="ABOR":
                 pass
+
+
             elif command =="DELE":
                 pass
+
+
             elif command =="RMD":
                 pass
+
+
             elif command =="MKD":
                 pass
+
+
             elif command =="NLST":
                 pass
+
+
             elif command =="SITE":
                 pass
+
+
             elif command =="SYST":
                 system_name = platform.system()
                 response = f'215 {system_name} Type: L8\r\n'
+
+
             elif command =="STAT":
                 pass
+
+
             elif command =="HELP":
                 response= '214 The following commands are recognized.\r\n'                
                 response+='USER <SP> <nombre-usuario> <CRLF>\r\n'
@@ -296,8 +394,12 @@ class FTPServer:
                 response+='HELP [<SP> <cadena>] <CRLF>\r\n'
                 response+='NOOP <CRLF>\r\n'
                 response+='214 Help OK.\r\n'
+
+
             elif command =="NOOP":
                 response = "200 OK.\r\n"
+
+
             else:
                 response = "502 Command not implemented.\r\n"
 
