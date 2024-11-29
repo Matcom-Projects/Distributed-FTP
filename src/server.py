@@ -234,10 +234,6 @@ class FTPServer:
                 response = '200 Directory changed to parent directory.\r\n'
 
 
-            elif command =="SMNT":
-                pass
-
-
             elif command =="REIN":
                 authenticated = False
                 authenticated_admin=False
@@ -290,7 +286,7 @@ class FTPServer:
             elif command =="STRU":
                 structure_type = args[0]
                 if structure_type == 'F':
-                    response= '200 File structure set to F.\r\n'
+                    response= '200 File structure set to file.\r\n'
                 else:
                     response='504 Structure not implemented.\r\n'
 
@@ -298,7 +294,7 @@ class FTPServer:
             elif command =="MODE":
                 mode_type = args[0]
                 if mode_type == 'S':
-                    response = '200 Mode set to S.\r\n'
+                    response = '200 Mode set to stream.\r\n'
                 else:
                     response = '504 Mode not implemented.\r\n'
 
@@ -312,7 +308,7 @@ class FTPServer:
 
 
             elif command =="ALLO":
-                pass
+                response = '200 Command not needed.\r\n'
 
 
             elif command =="REST":
@@ -348,6 +344,10 @@ class FTPServer:
 
 
             elif command =="SITE":
+                pass
+
+
+            elif command =="SMNT":
                 pass
 
 
