@@ -99,6 +99,7 @@ class FTPServer:
     def __init__(self, host, port):
         self.host = host
         self.port = port
+        self.data_port=0
         self.data_type='ASCII'
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.cwd=ROOT_DIR
@@ -110,11 +111,11 @@ class FTPServer:
         while True:
             client_socket, client_address = self.server_socket.accept()
             print(f"Conexión establecida con {client_address}")
-            threading.Thread(target=self.handle_client, args=(client_socket,)).start()
+            threading.Thread(target=self.handle_client, args=(client_socket,client_address)).start()
 
-    def handle_client(self, client_socket):
+    def handle_client(self, client_socket,client_address):
         current_dir = self.cwd
-        client_socket.send(b"220 Servicio FTP listo\r\n")
+        client_socket.send(b"220 FTP service ready.\r\n")
         
         while True:
             data = client_socket.recv(1024).decode().strip()
@@ -162,9 +163,20 @@ class FTPServer:
             elif command =="PORT":
                 pass
             elif command =="PASV":
-                pass
+                try:
+                    self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    self.data_socket.bind((self.host, 0))
+                    self.data_port = self.data_socket.getsockname()[1]
+                    self.data_socket.listen(1)
+                    print(self.host)
+                    host_bytes = self.host.split('.')
+                    port_bytes = [self.data_port // 256, self.data_port % 256]
+                    response= f'227 Entering Passive Mode ({host_bytes[0]},{host_bytes[1]},{host_bytes[2]},{host_bytes[3]},{port_bytes[0]},{port_bytes[1]})\r\n'
+                except Exception as e:
+                    response= '425 Can not open data connection\r\n'
+                    print(f'Error entering passive mode: {e}')
             elif command =="TYPE":
-                data_type = data.split()[1]
+                data_type = args[0]
                 if data_type == 'A':
                     self.data_type = 'ASCII'
                     response = '200 Type set to ASCII.\r\n'
