@@ -173,7 +173,9 @@ class FTPServer:
             elif command == "STOR":
                 pass
             elif command == "QUIT":
-                pass
+                response = "221 Closing connection, goodbye.\r\n"
+                client_socket.send(response.encode())
+                break
             elif command =="ACCT":
                 pass
             elif command =="CDUP":
