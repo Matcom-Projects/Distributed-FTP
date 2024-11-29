@@ -224,7 +224,11 @@ class FTPServer:
                 else:
                     response = '504 Type not implemented.\r\n'
             elif command =="STRU":
-                pass
+                structure_type = args[0]
+                if structure_type == 'F':
+                    response= '200 File structure set to F.\r\n'
+                else:
+                    response='504 Structure not implemented.\r\n'
             elif command =="MODE":
                 pass
             elif command =="STOU":
