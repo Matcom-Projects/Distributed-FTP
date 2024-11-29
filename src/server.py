@@ -55,8 +55,6 @@ ACCT <SP> <información-cuenta> <CRLF>
 CDUP <CRLF>
 SMNT <SP> <nombre-ruta> <CRLF>
 REIN <CRLF>
-PORT <SP> <dirIP-puerto> <CRLF>
-PASV <CRLF>
 STRU <SP> <código-estructura> <CRLF>
 MODE <SP> <código-modo> <CRLF>
 RETR <SP> <nombre-ruta> <CRLF>
@@ -72,7 +70,6 @@ ABOR <CRLF>
 DELE <SP> <nombre-ruta> <CRLF>
 RMD  <SP> <nombre-ruta> <CRLF>
 MKD  <SP> <nombre-ruta> <CRLF>
-LIST [<SP> <nombre-ruta>] <CRLF>
 NLST [<SP> <nombre-ruta>] <CRLF>
 SITE <SP> <cadena> <CRLF>
 STAT [<SP> <nombre-ruta>] <CRLF>
@@ -159,7 +156,18 @@ class FTPServer:
                 else:
                     response = "501 Syntax error in parameters or arguments.\r\n"
             elif command == "LIST":
-                pass
+                try:
+                    response = "150 Here comes the directory listing.\r\n"
+                    client_socket.send(response.encode())
+                    data_connection, _ = self.data_socket.accept()
+
+                    files = os.listdir(current_dir)
+                    file_list = "\r\n".join(files) + "\r\n"
+                    data_connection.send(file_list.encode())
+                    data_connection.close()
+                    response = "226 List of files sent successfully.\r\n"
+                except Exception as e:
+                    response = f"550 Error al listar archivos: {e}\r\n"
             elif command == "RETR":
                 pass
             elif command == "STOR":
