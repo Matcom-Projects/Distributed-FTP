@@ -118,6 +118,10 @@ class FTPServer:
     def handle_client(self, client_socket,client_address):
         current_dir = self.cwd
         client_socket.send(b"220 FTP service ready.\r\n")
+        response = ""
+        authenticated = False
+        authenticated_admin = False
+        username = ''
         
         while True:
             data = client_socket.recv(1024).decode()
@@ -128,9 +132,6 @@ class FTPServer:
             command, *args = data.split()
             command = command.upper()
             response = ""
-            authenticated = False
-            authenticated_admin = False
-            username = ''
 
             if command == "USER":
                 username = args[0]
@@ -141,7 +142,7 @@ class FTPServer:
                 else:
                     response = '530 User incorrect.\r\n'
             elif command == "PASS":
-                password = data.split()[1]
+                password = args[0]
                 if self.admin.get(username) == password:
                     authenticated = True
                     response='230 User logged in.\r\n'
