@@ -51,17 +51,12 @@ return_codes={
 }
 
 '''Las órdenes FTP son las siguientes:
-USER <SP> <nombre-usuario> <CRLF>
-PASS <SP> <contraseña> <CRLF>
 ACCT <SP> <información-cuenta> <CRLF>
-ok        CWD  <SP> <nombre-ruta> <CRLF>
 CDUP <CRLF>
 SMNT <SP> <nombre-ruta> <CRLF>
-QUIT <CRLF>
 REIN <CRLF>
 PORT <SP> <dirIP-puerto> <CRLF>
 PASV <CRLF>
-ok        TYPE <SP> <código-tipo> <CRLF>
 STRU <SP> <código-estructura> <CRLF>
 MODE <SP> <código-modo> <CRLF>
 RETR <SP> <nombre-ruta> <CRLF>
@@ -77,14 +72,10 @@ ABOR <CRLF>
 DELE <SP> <nombre-ruta> <CRLF>
 RMD  <SP> <nombre-ruta> <CRLF>
 MKD  <SP> <nombre-ruta> <CRLF>
-ok        PWD  <CRLF>
 LIST [<SP> <nombre-ruta>] <CRLF>
 NLST [<SP> <nombre-ruta>] <CRLF>
 SITE <SP> <cadena> <CRLF>
-ok        SYST <CRLF>
 STAT [<SP> <nombre-ruta>] <CRLF>
-ok        HELP [<SP> <cadena>] <CRLF>
-ok        NOOP <CRLF>
 '''
 
 # Configuración del servidor
@@ -186,7 +177,16 @@ class FTPServer:
             elif command =="REIN":
                 pass
             elif command =="PORT":
-                pass
+                try:
+                    data = args[0].split(',')
+                    host = '.'.join(data[:4])
+                    port = int(data[4]) * 256 + int(data[5])
+                    self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    self.data_socket.connect((host, port))
+                    response= '200 PORT command successful.\r\n'
+                except Exception as e:
+                    response = '425 Can not open data connection.\r\n'
+                    print(f'Error opening data connection: {e}')
             elif command =="PASV":
                 try:
                     self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
