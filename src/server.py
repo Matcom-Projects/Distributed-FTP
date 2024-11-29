@@ -52,11 +52,8 @@ return_codes={
 
 '''Las órdenes FTP son las siguientes:
 SMNT <SP> <nombre-ruta> <CRLF>
-STOR <SP> <nombre-ruta> <CRLF>
 STOU <CRLF>
 APPE <SP> <nombre-ruta> <CRLF>
-ALLO <SP> <entero-decimal>
-    [<SP> R <SP> <entero-decimal>] <CRLF>
 REST <SP> <marcador> <CRLF>
 RNFR <SP> <nombre-ruta> <CRLF>
 RNTO <SP> <nombre-ruta> <CRLF>
@@ -210,7 +207,32 @@ class FTPServer:
 
 
             elif command == "STOR":
-                pass
+                filename = args[0]
+                file_path = os.path.abspath(os.path.join(current_dir, filename))
+
+                try:
+                    client_socket.sendall(b'150 File status okay; about to open data connection.\r\n')
+                    data_transfer, _ = self.data_socket.accept()
+
+                    mode = 'wb' if self.data_type == 'Binary' else 'w'
+                    with open(file_path, mode) as file:
+                        
+                        while True:
+                            up_data = data_transfer.recv(1024)
+                            if not up_data:
+                                break
+                            if self.data_type == 'ASCII':
+                                up_data = up_data.decode()
+                            file.write(up_data)
+
+                    data_transfer.close()
+                    response = '226 Transfer complete.\r\n'
+
+                except Exception as e:
+                    response='550 Failed to store file.\r\n'
+                    print(f'Error storing file: {e}')
+                    if data_transfer:
+                        data_transfer.close()
 
 
             elif command == "QUIT":
