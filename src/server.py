@@ -51,8 +51,6 @@ return_codes={
 }
 
 '''Las órdenes FTP son las siguientes:
-ACCT <SP> <información-cuenta> <CRLF>
-CDUP <CRLF>
 SMNT <SP> <nombre-ruta> <CRLF>
 REIN <CRLF>
 STRU <SP> <código-estructura> <CRLF>
@@ -181,7 +179,8 @@ class FTPServer:
                 response += f'Password: {self.users[username]}\r\n'
                 response += '211 End of account status.\r\n'
             elif command =="CDUP":
-                pass
+                current_dir = os.path.abspath(os.path.join(current_dir, os.pardir))
+                response = '200 Directory changed to parent directory.\r\n'
             elif command =="SMNT":
                 pass
             elif command =="REIN":
