@@ -135,12 +135,11 @@ class FTPServer:
                     authenticated = True
                     response='230 User logged in.\r\n'
                 elif self.users.get(username) == password:
-                    authenticated = True
                     authenticated_admin = True
                     response='230 Admin logged in.\r\n'
                 else:
                     response='530 Password incorrect in.\r\n'
-            elif not authenticated:
+            elif not authenticated and not authenticated_admin:
                 response = '530 Not logged in.\r\n'
             elif command == "PWD":
                 relative_dir = os.path.relpath(current_dir, os.path.join(os.getcwd(), self.cwd))
@@ -177,7 +176,10 @@ class FTPServer:
                 client_socket.send(response.encode())
                 break
             elif command =="ACCT":
-                pass
+                response = '211 Account status.\r\n'
+                response += f'Name: {username}\r\n'
+                response += f'Password: {self.users[username]}\r\n'
+                response += '211 End of account status.\r\n'
             elif command =="CDUP":
                 pass
             elif command =="SMNT":
