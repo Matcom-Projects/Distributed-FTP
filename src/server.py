@@ -96,11 +96,13 @@ ROOT_DIR = os.path.abspath("ftp_root")  # Directorio raíz para el FTP
 os.makedirs(ROOT_DIR, exist_ok=True)
 
 class FTPServer:
-    def __init__(self, host, port):
+    def __init__(self, host, port,users,admin):
         self.host = host
         self.port = port
         self.data_port=0
         self.data_type='ASCII'
+        self.users=users
+        self.admin=admin
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.cwd=ROOT_DIR
 
@@ -126,11 +128,22 @@ class FTPServer:
             command, *args = data.split()
             command = command.upper()
             response = ""
+            authenticated = False
+            authenticated_admin = False
+            username = ''
 
             if command == "USER":
-                pass
+                username = args[0]
+                if username in self.users:
+                    response = '331 User name okay, need password.\r\n'
+                elif username in self.admin:
+                    response= '331 Admin name okay, need password.\r\n'
+                else:
+                    response = '530 User incorrect.\r\n'
             elif command == "PASS":
                 pass
+            elif not authenticated:
+                response = '530 Not logged in.\r\n'
             elif command == "PWD":
                 relative_dir = os.path.relpath(current_dir, os.path.join(os.getcwd(), self.cwd))
                 response = f'257 {relative_dir}\r\n'
