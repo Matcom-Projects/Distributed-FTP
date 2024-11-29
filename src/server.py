@@ -52,8 +52,6 @@ return_codes={
 
 '''Las órdenes FTP son las siguientes:
 SMNT <SP> <nombre-ruta> <CRLF>
-MODE <SP> <código-modo> <CRLF>
-RETR <SP> <nombre-ruta> <CRLF>
 STOR <SP> <nombre-ruta> <CRLF>
 STOU <CRLF>
 APPE <SP> <nombre-ruta> <CRLF>
@@ -298,7 +296,11 @@ class FTPServer:
 
 
             elif command =="MODE":
-                pass
+                mode_type = args[0]
+                if mode_type == 'S':
+                    response = '200 Mode set to S.\r\n'
+                else:
+                    response = '504 Mode not implemented.\r\n'
 
 
             elif command =="STOU":
