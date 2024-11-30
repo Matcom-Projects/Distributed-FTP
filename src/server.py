@@ -84,7 +84,7 @@ class FTPServer:
         self.restart_point = 0
         self.users=users
         self.admin=admin
-        self.path_to_change=''
+        self.path_to_change=None
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.cwd=ROOT_DIR
 
@@ -404,12 +404,22 @@ class FTPServer:
                 if not os.path.exists(file_path):
                     response = '550 File not found.\r\n'
                     continue
+                self.path_to_change= file_path
                 client_socket.sendall(b"350 Ready for RNTO.\r\n")
                 pass
 
 
             elif command =="RNTO":
-                pass
+                try:
+                    new_name= args[0]
+                    os.rename(self.path_to_change, new_name)
+                    client_socket.sendall(b"250 Requested file action completed.\r\n")
+                    self.path_to_change = None
+                except ValueError:
+                    client_socket.sendall(b"501 Syntax error in parameters.\r\n")
+                except FileNotFoundError:
+                    client_socket.sendall(b"550 File not found.\r\n")
+
 
 
             elif command =="ABOR":
