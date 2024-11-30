@@ -2,6 +2,7 @@ import os
 import socket
 import threading
 import platform
+import uuid
 
 return_codes={
 	100: "The requested action is being initiated, expect another reply before proceeding with a new command.",
@@ -322,6 +323,32 @@ class FTPServer:
 
 
             elif command =="STOU":
+                filename = str(args[0])+ str(uuid.uuid1())
+                file_path = os.path.abspath(os.path.join(current_dir, filename))
+
+                try:
+                    client_socket.sendall(b'150 File status okay; about to open data connection.\r\n')
+                    data_transfer, _ = self.data_socket.accept()
+
+                    mode = 'wb' if self.data_type == 'Binary' else 'w'
+                    with open(file_path, mode) as file:
+                        
+                        while True:
+                            up_data = data_transfer.recv(1024)
+                            if not up_data:
+                                break
+                            if self.data_type == 'ASCII':
+                                up_data = up_data.decode()
+                            file.write(up_data)
+
+                    data_transfer.close()
+                    response = '226 Transfer complete.\r\n'
+
+                except Exception as e:
+                    response='550 Failed to store file.\r\n'
+                    print(f'Error storing file: {e}')
+                    if data_transfer:
+                        data_transfer.close()
                 pass
 
 
@@ -426,7 +453,7 @@ class FTPServer:
 
             else:
                 response = "502 Command not implemented.\r\n"
-
+            print(response,"RESS")
             client_socket.send(response.encode())
 
         client_socket.close()
