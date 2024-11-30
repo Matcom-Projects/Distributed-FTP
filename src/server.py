@@ -2,6 +2,7 @@ import os
 import socket
 import threading
 import platform
+import uuid
 
 return_codes={
 	100: "The requested action is being initiated, expect another reply before proceeding with a new command.",
@@ -83,6 +84,7 @@ class FTPServer:
         self.restart_point = 0
         self.users=users
         self.admin=admin
+        self.path_to_change=None
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.cwd=ROOT_DIR
 
@@ -322,11 +324,63 @@ class FTPServer:
 
 
             elif command =="STOU":
+                filename = str(args[0])+ str(uuid.uuid1())
+                file_path = os.path.abspath(os.path.join(current_dir, filename))
+
+                try:
+                    client_socket.sendall(b'150 File status okay; about to open data connection.\r\n')
+                    data_transfer, _ = self.data_socket.accept()
+
+                    mode = 'wb' if self.data_type == 'Binary' else 'w'
+                    with open(file_path, mode) as file:
+                        
+                        while True:
+                            up_data = data_transfer.recv(1024)
+                            if not up_data:
+                                break
+                            if self.data_type == 'ASCII':
+                                up_data = up_data.decode()
+                            file.write(up_data)
+
+                    data_transfer.close()
+                    response = '226 Transfer complete.\r\n'
+
+                except Exception as e:
+                    response='550 Failed to store file.\r\n'
+                    print(f'Error storing file: {e}')
+                    if data_transfer:
+                        data_transfer.close()
                 pass
 
 
             elif command =="APPE":
-                pass
+                filename = args[0]
+                file_path = os.path.abspath(os.path.join(current_dir, filename))
+
+                try:
+                    client_socket.sendall(b'150 File status okay; about to open data connection.\r\n')
+                    data_transfer, _ = self.data_socket.accept()
+
+                    mode = 'a' #? Esto debiera ser suficiente para concatenar los datos en un  archivo
+                            #? Debo de hacer algo si lo que vien es binario??z``
+                    with open(file_path, mode) as file:
+                        
+                        while True:
+                            up_data = data_transfer.recv(1024)
+                            if not up_data:
+                                break
+                            if self.data_type == 'ASCII':
+                                up_data = up_data.decode()
+                            file.write(up_data)
+
+                    data_transfer.close()
+                    response = '226 Transfer complete.\r\n'
+
+                except Exception as e:
+                    response='550 Failed to store file.\r\n'
+                    print(f'Error storing file: {e}')
+                    if data_transfer:
+                        data_transfer.close()
 
 
             elif command =="ALLO":
@@ -334,15 +388,38 @@ class FTPServer:
 
 
             elif command =="REST":
-                pass
+                try:
+                    byte_offset=args[0]
+                    self.restart_point=byte_offset #!Debo de hacer algun tipo de verificacion??
+                    client_socket.sendall(b"350 Restart marker accepted.\r\n")
+                except:
+                    client_socket.sendall(b"501 Syntax error in parameters.\r\n")
+                
 
 
             elif command =="RNFR":
+                filename = args[0]
+                file_path = os.path.abspath(os.path.join(current_dir, filename))
+
+                if not os.path.exists(file_path):
+                    response = '550 File not found.\r\n'
+                    continue
+                self.path_to_change= file_path
+                client_socket.sendall(b"350 Ready for RNTO.\r\n")
                 pass
 
 
             elif command =="RNTO":
-                pass
+                try:
+                    new_name= args[0]
+                    os.rename(self.path_to_change, new_name)
+                    client_socket.sendall(b"250 Requested file action completed.\r\n")
+                    self.path_to_change = None
+                except ValueError:
+                    client_socket.sendall(b"501 Syntax error in parameters.\r\n")
+                except FileNotFoundError:
+                    client_socket.sendall(b"550 File not found.\r\n")
+
 
 
             elif command =="ABOR":
@@ -426,7 +503,7 @@ class FTPServer:
 
             else:
                 response = "502 Command not implemented.\r\n"
-
+            print(response,"RESS")
             client_socket.send(response.encode())
 
         client_socket.close()
