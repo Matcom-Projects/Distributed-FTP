@@ -432,7 +432,18 @@ class FTPServer:
 
 
             elif command =="DELE":
-                pass
+                try:
+                    filename = args[0]
+                    file_path = os.path.abspath(os.path.join(current_dir, filename))
+
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                        client_socket.sendall(b"250 Requested file action okay, completed.\r\n")
+                    else:
+                        client_socket.sendall(b"550 File not found or permission denied.\r\n")
+                except ValueError:
+                    client_socket.sendall(b"501 Syntax error in parameters or arguments.\r\n")
+                
 
 
             elif command =="RMD":
