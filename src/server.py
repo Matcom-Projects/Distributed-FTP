@@ -3,6 +3,7 @@ import socket
 import threading
 import platform
 import uuid
+import time
 
 return_codes={
 	100: "The requested action is being initiated, expect another reply before proceeding with a new command.",
@@ -423,19 +424,61 @@ class FTPServer:
 
 
             elif command =="ABOR":
-                pass
+                if self.data_socket:    
+                    self.data_socket.close()
+                    self.data_socket=None
+                    client_socket.sendall(b"226 Closing data connection. Transfer aborted.\r\n")
+                else:
+                    client_socket.sendall(b"225 No transfer to abort.\r\n")
 
 
             elif command =="DELE":
-                pass
+                try:
+                    filename = args[0]
+                    file_path = os.path.abspath(os.path.join(current_dir, filename))
+
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                        client_socket.sendall(b"250 Requested file action okay, completed.\r\n")
+                    else:
+                        client_socket.sendall(b"550 File not found or permission denied.\r\n")
+                except ValueError:
+                    client_socket.sendall(b"501 Syntax error in parameters or arguments.\r\n")
+                
 
 
             elif command =="RMD":
-                pass
+                try:
+                    dir_name = args[0]
+                    directory_path = os.path.abspath(os.path.join(current_dir, dir_name))
+                    # Check if the directory exists and is empty
+                    if os.path.isdir(directory_path):
+                        if not os.listdir(directory_path):  # Check if the directory is empty
+                            os.rmdir(directory_path)
+                            client_socket.sendall(b"250 Requested file action okay, completed.\r\n")
+                        else:
+                            client_socket.sendall(b"550 Directory not empty.\r\n")
+                    else:
+                        client_socket.sendall(b"550 Directory not found.\r\n")
+
+                except ValueError:
+                    client_socket.sendall(b"501 Syntax error in parameters or arguments.\r\n")
 
 
             elif command =="MKD":
-                pass
+                try:
+                    dir_name = args[0]
+                    directory_path = os.path.abspath(os.path.join(current_dir, dir_name))
+                # Check if the directory already exists
+                    if not os.path.exists(directory_path):
+                        os.mkdir(directory_path)
+                        client_socket.sendall(f'257 "{dir_name}" created.\r\n'.encode('utf-8'))
+                    else:
+                        client_socket.sendall(b"550 Directory creation failed (already exists).\r\n")
+                except ValueError:
+                    client_socket.sendall(b"501 Syntax error in parameters or arguments.\r\n")
+                except PermissionError:
+                    client_socket.sendall(b"550 Directory creation failed (permission denied).\r\n")
 
 
             elif command =="NLST":
@@ -456,7 +499,21 @@ class FTPServer:
 
 
             elif command =="STAT":
-                pass
+                parts = args
+        
+                # STAT without arguments (server status)
+                if len(parts) == 1:
+                    client_socket.sendall(b"211-FTP Server Status:\r\n")
+                    client_socket.sendall(b"Connected to "+ str(self.host) +"\r\n")
+                    client_socket.sendall(b"Current directory: " + self.current_dir.encode('utf-8') + b"\r\n")
+                    client_socket.sendall(b"211 End of status.\r\n")
+                else:  # STAT with a file/directory argument
+                    target = os.path.join(current_dir, parts[1])
+                    if os.path.exists(target):
+                        details = self.get_file_info(target)
+                        client_socket.sendall(b"213 " + details.encode('utf-8') + b"\r\n")
+                    else:
+                        client_socket.sendall(b"550 File or directory not found.\r\n")
 
 
             elif command =="HELP":
@@ -508,6 +565,15 @@ class FTPServer:
 
         client_socket.close()
         print("Conexión cerrada")
+        
+    def get_file_info(self, path):
+    # """Generate file or directory information."""
+        if os.path.isdir(path):
+            return f"{path} is a directory."
+        else:
+            size = os.path.getsize(path)
+            mtime = time.ctime(os.path.getmtime(path))
+            return f"{path} Size: {size} bytes, Last Modified: {mtime}"
 
 if __name__ == "__main__":
     ftp_server = FTPServer(HOST, PORT,{'user': 'user1234'},{'admin': 'admin1234'})
