@@ -504,8 +504,8 @@ class FTPServer:
                 # STAT without arguments (server status)
                 if len(parts) == 0:
                     client_socket.sendall(b"211-FTP Server Status:\r\n")
-                    client_socket.sendall(b"Connected to "+ str(self.host) +"\r\n")
-                    client_socket.sendall(b"Current directory: " + self.current_dir.encode('utf-8') + b"\r\n")
+                    client_socket.sendall(b"Connected to "+ str(self.host).encode('utf-8') +b"\r\n")
+                    client_socket.sendall(b"Current directory: " + current_dir.encode('utf-8') + b"\r\n")
                     client_socket.sendall(b"211 End of status.\r\n")
                 else:  # STAT with a file/directory argument
                     target = os.path.join(current_dir, parts[0])
