@@ -423,7 +423,12 @@ class FTPServer:
 
 
             elif command =="ABOR":
-                pass
+                if self.data_socket:    
+                    self.data_socket.close()
+                    self.data_socket=None
+                    client_socket.sendall(b"226 Closing data connection. Transfer aborted.\r\n")
+                else:
+                    client_socket.sendall(b"225 No transfer to abort.\r\n")
 
 
             elif command =="DELE":
