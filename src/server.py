@@ -4,69 +4,7 @@ import threading
 import platform
 import uuid
 import time
-
-return_codes={
-	100: "The requested action is being initiated, expect another reply before proceeding with a new command.",
-	110: "Restart marker reply.",
-	120: "Service ready in %s minutes.",
-	125: "Data connection already open; transfer starting.",
-	150: "File status okay; about to open data connection.",
-
-	200: "Command okay.",
-	202: "Command not implemented.",
-	211: "System status.",
-	212: "Directory status.",
-	213: "File status.",
-	214: "Help message.",
-	215: "FTP server.",
-	220: "Service ready for new user.",
-	221: "Service closing control connection.",
-	225: "Data connection open; no transfer in progress.",
-	226: "Closing data connection.",
-	227: "Entering Passive Mode.",
-	230: "User logged in, proceed.",
-	250: "Requested file action okay, completed.",
-	257: "File created.",
-
-	331: "User name okay, need password.",
-	332: "Need account for login.",
-	350: "Requested file action pending further information.",
-
-	421: "Service not available, closing control connection.",
-	425: "Can't open data connection.",
-	426: "Connection closed; transfer aborted.",
-	450: "Requested file action not taken.",
-	451: "Requested action aborted. Local error in processing.",
-	452: "Requested action not taken.",
-
-	500: "Syntax error, command unrecognized.",
-	501: "Syntax error in parameters or arguments.",
-	502: "Command not implemented.",
-	503: "Bad sequence of commands.",
-	504: "Command not implemented for that parameter.",
-	530: "Not logged in.",
-	532: "Need account for storing files.",
-	550: "Requested action not taken.",
-	551: "Requested action aborted. Page type unknown.",
-	552: "Requested file action aborted.",
-	553: "Requested action not taken."
-}
-
-'''Las órdenes FTP son las siguientes:
-SMNT <SP> <nombre-ruta> <CRLF>
-STOU <CRLF>
-APPE <SP> <nombre-ruta> <CRLF>
-REST <SP> <marcador> <CRLF>
-RNFR <SP> <nombre-ruta> <CRLF>
-RNTO <SP> <nombre-ruta> <CRLF>
-ABOR <CRLF>
-DELE <SP> <nombre-ruta> <CRLF>
-RMD  <SP> <nombre-ruta> <CRLF>
-MKD  <SP> <nombre-ruta> <CRLF>
-NLST [<SP> <nombre-ruta>] <CRLF>
-SITE <SP> <cadena> <CRLF>
-STAT [<SP> <nombre-ruta>] <CRLF>
-'''
+import stat
 
 # Configuración del servidor
 HOST = '127.0.0.1'
@@ -77,14 +15,13 @@ ROOT_DIR = os.path.abspath("ftp_root")  # Directorio raíz para el FTP
 os.makedirs(ROOT_DIR, exist_ok=True)
 
 class FTPServer:
-    def __init__(self, host, port,users,admin):
+    def __init__(self, host, port,users):
         self.host = host
         self.port = port
         self.data_port=0
         self.data_type='ASCII'
         self.restart_point = 0
         self.users=users
-        self.admin=admin
         self.path_to_change=None
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.cwd=ROOT_DIR
@@ -101,9 +38,7 @@ class FTPServer:
     def handle_client(self, client_socket,client_address):
         current_dir = self.cwd
         client_socket.send(b"220 FTP service ready.\r\n")
-        response = ""
         authenticated = False
-        authenticated_admin = False
         username = ''
         
         while True:
@@ -114,37 +49,31 @@ class FTPServer:
             print(f"Comando recibido: {data.strip()}")
             command, *args = data.split()
             command = command.upper()
-            response = ""
 
             if command == "USER":
                 username = args[0]
                 if username in self.users:
-                    response = '331 User name okay, need password.\r\n'
-                elif username in self.admin:
-                    response= '331 Admin name okay, need password.\r\n'
+                    client_socket.sendall(b'331 User name okay, need password.\r\n')
                 else:
-                    response = '530 User incorrect.\r\n'
+                    client_socket.sendall(b'530 User incorrect.\r\n')
 
 
             elif command == "PASS":
                 password = args[0]
-                if self.admin.get(username) == password:
+                if self.users.get(username) == password:
                     authenticated = True
-                    response='230 User logged in.\r\n'
-                elif self.users.get(username) == password:
-                    authenticated_admin = True
-                    response='230 Admin logged in.\r\n'
+                    client_socket.sendall(b'230 User logged in.\r\n')
                 else:
-                    response='530 Password incorrect in.\r\n'
+                    client_socket.sendall(b'530 Password incorrect in.\r\n')
 
 
-            elif not authenticated and not authenticated_admin:
-                response = '530 Not logged in.\r\n'
+            elif not authenticated :
+                client_socket.sendall(b'530 Not logged in.\r\n')
 
 
             elif command == "PWD":
                 relative_dir = os.path.relpath(current_dir, os.path.join(os.getcwd(), self.cwd))
-                response = f'257 {relative_dir}\r\n'
+                client_socket.sendall(f"257 /{relative_dir} \r\n".encode())
 
 
             elif command == "CWD":
@@ -152,26 +81,46 @@ class FTPServer:
                     new_dir = os.path.abspath(os.path.join(current_dir, args[0]))
                     if os.path.exists(new_dir) and os.path.isdir(new_dir):
                         current_dir = new_dir
-                        response = "250 Directory successfully changed.\r\n"
+                        client_socket.sendall(b"250 Directory successfully changed.\r\n")
                     else:
-                        response = "550 Failed to change directory.\r\n"
+                        client_socket.sendall(b"550 Failed to change directory.\r\n")
                 else:
-                    response = "501 Syntax error in parameters or arguments.\r\n"
+                    client_socket.sendall(b"501 Syntax error in parameters or arguments.\r\n")
 
 
             elif command == "LIST":
                 try:
-                    response = "150 Here comes the directory listing.\r\n"
-                    client_socket.send(response.encode())
-                    data_connection, _ = self.data_socket.accept()
+                    client_socket.sendall(b'150 Here comes the directory listing\r\n')
+                    data_transfer, _ = self.data_socket.accept()
 
+                    # Obtener la lista de archivos en el directorio actual
                     files = os.listdir(current_dir)
-                    file_list = "\r\n".join(files) + "\r\n"
-                    data_connection.send(file_list.encode())
-                    data_connection.close()
-                    response = "226 List of files sent successfully.\r\n"
+
+                    # Obtener los detalles de cada archivo
+                    file_details = ['Permissions  Links  Size           Last-Modified  Name']
+                    for file in files:
+                        stats = os.stat(os.path.join(current_dir, file))
+
+                        # Convertir los detalles del archivo a la forma de salida de 'ls -l'
+                        details = {
+                            'mode': stat.filemode(stats.st_mode).ljust(11),
+                            'nlink': str(stats.st_nlink).ljust(6),
+                            'size': str(stats.st_size).ljust(5),
+                            'mtime': time.strftime('%b %d %H:%M', time.gmtime(stats.st_mtime)).ljust(12),
+                            'name': file
+                        }
+                        file_details.append('{mode}  {nlink} {size}          {mtime}   {name}'.format(**details))
+
+                        # Enviar los detalles de los archivos
+                    dir_list = '\n'.join(file_details) + '\r\n'
+                    data_transfer.sendall(dir_list.encode())
+                    data_transfer.close()
+                    client_socket.sendall(b'226 Directory send OK\r\n')
                 except Exception as e:
-                    response = f"550 Error al listar archivos: {e}\r\n"
+                    client_socket.sendall(f'550 Failed to list directory: {e}\r\n'.encode())
+                    print(f'Error listing directory: {e}')
+                    if data_transfer:
+                        data_transfer.close()
 
 
             elif command == "RETR":
@@ -179,15 +128,15 @@ class FTPServer:
                 file_path = os.path.abspath(os.path.join(current_dir, filename))
 
                 if not os.path.exists(file_path):
-                    response = '550 File not found.\r\n'
+                    client_socket.sendall(b'550 File not found.\r\n')
                     continue
 
                 try:  
-                    client_socket.sendall(b'150 File status okay; about to open data connection.\r\n')
+                    client_socket.sendall(b'150 File status okay, about to open data connection.\r\n')
                     data_transfer, _ = self.data_socket.accept()
 
                     mode = 'rb' if self.data_type == 'Binary' else 'r'
-                    with open(file_path, mode) as file:
+                    with open(file_path, 'rb') as file:
                         file.seek(self.restart_point)
                         self.restart_point = 0
 
@@ -195,15 +144,13 @@ class FTPServer:
                             down_data = file.read(1024)
                             if not down_data:
                                 break
-                            if self.data_type == 'ASCII':
-                                down_data = down_data.encode()
                             data_transfer.sendall(down_data)
                                 
                     data_transfer.close()
-                    response ='226 Transfer complete.\r\n'
+                    client_socket.sendall(b'226 Transfer complete.\r\n')
 
                 except Exception as e:
-                    response ='550 Failed to retrieve file.\r\n'
+                    client_socket.sendall(b'550 Failed to retrieve file.\r\n')
                     print(f'Error retrieving file: {e}')
                     if data_transfer:
                         data_transfer.close()
@@ -218,34 +165,31 @@ class FTPServer:
                     data_transfer, _ = self.data_socket.accept()
 
                     mode = 'wb' if self.data_type == 'Binary' else 'w'
-                    with open(file_path, mode) as file:
+                    with open(file_path, 'wb') as file:
                         
                         while True:
                             up_data = data_transfer.recv(1024)
                             if not up_data:
                                 break
-                            if self.data_type == 'ASCII':
-                                up_data = up_data.decode()
                             file.write(up_data)
 
                     data_transfer.close()
-                    response = '226 Transfer complete.\r\n'
+                    client_socket.sendall(b'226 Transfer complete.\r\n')
 
                 except Exception as e:
-                    response='550 Failed to store file.\r\n'
+                    client_socket.sendall(b'550 Failed to store file.\r\n')
                     print(f'Error storing file: {e}')
                     if data_transfer:
                         data_transfer.close()
 
 
             elif command == "QUIT":
-                response = "221 Closing connection, goodbye.\r\n"
-                client_socket.send(response.encode())
+                client_socket.sendall(b"221 Closing connection, goodbye.\r\n")
                 break
 
 
             elif command =="ACCT":
-                response = '211 Account status.\r\n' 
+                client_socket.sendall(b'211 Account status.\r\n')
                 response += f'Name: {username}\r\n'
                 if authenticated:
                     response += f'Password: {self.users[username]}\r\n'
@@ -256,16 +200,19 @@ class FTPServer:
 
             elif command =="CDUP":
                 current_dir = os.path.abspath(os.path.join(current_dir, os.pardir))
-                response = '200 Directory changed to parent directory.\r\n'
+                print(current_dir)
+                # Verificar que el directorio padre esté dentro del directorio raíz (ftp_root)
+                if os.path.commonpath([current_dir, ROOT_DIR]) != ROOT_DIR:
+                    current_dir=self.cwd
+                client_socket.sendall(b'200 Directory changed to parent directory.\r\n')
 
 
             elif command =="REIN":
                 authenticated = False
-                authenticated_admin=False
                 username = ''
                 self.data_type = 'ASCII'
                 self.restart_point = 0
-                response = '220 Service ready for new user.\r\n'
+                client_socket.sendall(b'220 Service ready for new user.\r\n')
 
 
             elif command =="PORT":
@@ -275,9 +222,9 @@ class FTPServer:
                     port = int(data[4]) * 256 + int(data[5])
                     self.data_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                     self.data_socket.connect((host, port))
-                    response= '200 PORT command successful.\r\n'
+                    client_socket.sendall(b'200 PORT command successful.\r\n')
                 except Exception as e:
-                    response = '425 Can not open data connection.\r\n'
+                    client_socket.sendall(b'425 Can not open data connection.\r\n')
                     print(f'Error opening data connection: {e}')
 
 
@@ -290,9 +237,9 @@ class FTPServer:
                     print(self.host)
                     host_bytes = self.host.split('.')
                     port_bytes = [self.data_port // 256, self.data_port % 256]
-                    response= f'227 Entering Passive Mode ({host_bytes[0]},{host_bytes[1]},{host_bytes[2]},{host_bytes[3]},{port_bytes[0]},{port_bytes[1]})\r\n'
+                    client_socket.sendall(f'227 Entering Passive Mode ({host_bytes[0]},{host_bytes[1]},{host_bytes[2]},{host_bytes[3]},{port_bytes[0]},{port_bytes[1]})\r\n'.encode())
                 except Exception as e:
-                    response= '425 Can not open data connection\r\n'
+                    client_socket.sendall(b'425 Can not open data connection\r\n')
                     print(f'Error entering passive mode: {e}')
 
 
@@ -300,28 +247,28 @@ class FTPServer:
                 data_type = args[0]
                 if data_type == 'A':
                     self.data_type = 'ASCII'
-                    response = '200 Type set to ASCII.\r\n'
+                    client_socket.sendall(b'200 Type set to ASCII.\r\n')
                 elif data_type == 'I':
                     self.data_type = 'Binary'
-                    response = '200 Type set to Binary.\r\n'
+                    client_socket.sendall(b'200 Type set to Binary.\r\n')
                 else:
-                    response = '504 Type not implemented.\r\n'
+                    client_socket.sendall(b'504 Type not implemented.\r\n')
 
 
             elif command =="STRU":
                 structure_type = args[0]
                 if structure_type == 'F':
-                    response= '200 File structure set to file.\r\n'
+                    client_socket.sendall(b'200 File structure set to file.\r\n')
                 else:
-                    response='504 Structure not implemented.\r\n'
+                    client_socket.sendall(b'504 Structure not implemented.\r\n')
 
 
             elif command =="MODE":
                 mode_type = args[0]
                 if mode_type == 'S':
-                    response = '200 Mode set to stream.\r\n'
+                    client_socket.sendall(b'200 Mode set to stream.\r\n')
                 else:
-                    response = '504 Mode not implemented.\r\n'
+                    client_socket.sendall(b'504 Mode not implemented.\r\n')
 
 
             elif command =="STOU":
@@ -344,10 +291,10 @@ class FTPServer:
                             file.write(up_data)
 
                     data_transfer.close()
-                    response = '226 Transfer complete.\r\n'
+                    client_socket.sendall(b'226 Transfer complete.\r\n')
 
                 except Exception as e:
-                    response='550 Failed to store file.\r\n'
+                    client_socket.sendall(b'550 Failed to store file.\r\n')
                     print(f'Error storing file: {e}')
                     if data_transfer:
                         data_transfer.close()
@@ -375,17 +322,17 @@ class FTPServer:
                             file.write(up_data)
 
                     data_transfer.close()
-                    response = '226 Transfer complete.\r\n'
+                    client_socket.sendall(b'226 Transfer complete.\r\n')
 
                 except Exception as e:
-                    response='550 Failed to store file.\r\n'
+                    client_socket.sendall(b'550 Failed to store file.\r\n')
                     print(f'Error storing file: {e}')
                     if data_transfer:
                         data_transfer.close()
 
 
             elif command =="ALLO":
-                response = '200 Command not needed.\r\n'
+                client_socket.sendall(b'200 Command not needed.\r\n')
 
 
             elif command =="REST":
@@ -403,7 +350,7 @@ class FTPServer:
                 file_path = os.path.abspath(os.path.join(current_dir, filename))
 
                 if not os.path.exists(file_path):
-                    response = '550 File not found.\r\n'
+                    client_socket.sendall(b'550 File not found.\r\n')
                     continue
                 self.path_to_change= file_path
                 client_socket.sendall(b"350 Ready for RNTO.\r\n")
@@ -448,21 +395,13 @@ class FTPServer:
 
 
             elif command =="RMD":
+                dir_name = args[0]
+                directory_path = os.path.abspath(os.path.join(current_dir, dir_name))
                 try:
-                    dir_name = args[0]
-                    directory_path = os.path.abspath(os.path.join(current_dir, dir_name))
-                    # Check if the directory exists and is empty
-                    if os.path.isdir(directory_path):
-                        if not os.listdir(directory_path):  # Check if the directory is empty
-                            os.rmdir(directory_path)
-                            client_socket.sendall(b"250 Requested file action okay, completed.\r\n")
-                        else:
-                            client_socket.sendall(b"550 Directory not empty.\r\n")
-                    else:
-                        client_socket.sendall(b"550 Directory not found.\r\n")
-
-                except ValueError:
-                    client_socket.sendall(b"501 Syntax error in parameters or arguments.\r\n")
+                    os.rmdir(directory_path)
+                    client_socket.sendall(b'250 Directory deleted successfully.\r\n')
+                except Exception as e:
+                    client_socket.sendall(b'550 Failed to delete directory.\r\n')
 
 
             elif command =="MKD":
@@ -482,20 +421,32 @@ class FTPServer:
 
 
             elif command =="NLST":
-                pass
+                try:
+                    client_socket.sendall(b'150 Here comes the directory listing\r\n')
+                    extra_dir = data.split()[1]
+                    data_transfer, _ = self.data_socket.accept()
+                    dir_list = '\n'.join(os.listdir(os.path.join(current_dir, extra_dir))) + '\r\n'
+                    data_transfer.sendall(dir_list.encode())
+                    data_transfer.close()
+                    client_socket.sendall(b'226 Directory send OK\r\n')
+                except Exception as e:
+                    client_socket.sendall(f'550 Failed to list directory: {e}\r\n'.encode())
+                    print(f'Error listing directory: {e}')
+                    if data_transfer:
+                        data_transfer.close()
 
 
             elif command =="SITE":
-                pass
+                client_socket.sendall(b"503 Command not implemented.")
 
 
             elif command =="SMNT":
-                pass
+                client_socket.sendall(b"503 Command not implemented.")
 
 
             elif command =="SYST":
                 system_name = platform.system()
-                response = f'215 {system_name} Type: L8\r\n'
+                client_socket.sendall(f'215 {system_name} Type: L8\r\n'.encode())
 
 
             elif command =="STAT":
@@ -517,7 +468,8 @@ class FTPServer:
 
 
             elif command =="HELP":
-                response= '214 The following commands are recognized.\r\n'                
+                client_socket.sendall(b'214 The following commands are recognized.\r\n')
+                response=''                
                 response+='USER <SP> <nombre-usuario> <CRLF>\r\n'
                 response+='PASS <SP> <contraseña> <CRLF>\r\n'
                 response+='ACCT <SP> <información-cuenta> <CRLF>\r\n'
@@ -551,17 +503,17 @@ class FTPServer:
                 response+='STAT [<SP> <nombre-ruta>] <CRLF>\r\n'
                 response+='HELP [<SP> <cadena>] <CRLF>\r\n'
                 response+='NOOP <CRLF>\r\n'
-                response+='214 Help OK.\r\n'
+                client_socket.sendall(response.encode())
+                client_socket.sendall(b'214 Help OK.\r\n')
 
 
             elif command =="NOOP":
-                response = "200 OK.\r\n"
+                client_socket.sendall(b"200 OK.\r\n")
 
 
             else:
-                response = "502 Command not implemented.\r\n"
-            print(response,"RESS")
-            client_socket.send(response.encode())
+                client_socket.sendall(b"502 Command not implemented.\r\n")
+                print(f"comando no implementado {command}")
 
         client_socket.close()
         print("Conexión cerrada")
@@ -576,7 +528,7 @@ class FTPServer:
             return f"{path} Size: {size} bytes, Last Modified: {mtime}"
 
 if __name__ == "__main__":
-    ftp_server = FTPServer(HOST, PORT,{'user': 'user1234'},{'admin': 'admin1234'})
+    ftp_server = FTPServer(HOST, PORT,{'user': 'user1234'})
     try:
         ftp_server.start()
     except KeyboardInterrupt:
