@@ -5,9 +5,10 @@ import platform
 import uuid
 import time
 import stat
+import sys
 
 # Configuración del servidor
-HOST = '127.0.0.1'
+HOST = sys.argv[1] if len(sys.argv) > 1 else '127.0.0.1'
 PORT = 21
 ROOT_DIR = os.path.abspath("ftp_root")  # Directorio raíz para el FTP
 
