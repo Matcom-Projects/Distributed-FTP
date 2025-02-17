@@ -5,7 +5,8 @@ COPY src/ftp_root /app/ftp_root
 WORKDIR /app
 
 COPY src/networking/routing.sh /app
-COPY src/server/server.py /app
+COPY src/apiserver/apiserver.py /app
+COPY src/apiserver/filesystem.py /app
 
 
 RUN chmod +x /app/routing.sh
