@@ -9,15 +9,21 @@ import threading
 import platform
 import uuid
 import time
-import stat
 import sys
 import zipfile
 from filesystem import FileSystem,Directory,File
+from distributed_node import DistributedFileSystem
+
+# Ruta completa del script
+script_path = os.path.abspath(__file__)
+
+# Directorio donde está el script
+script_dir = os.path.dirname(script_path)
 
 # Configuración del servidor
 HOST = sys.argv[1] if len(sys.argv) > 1 else '127.0.0.1'
 PORT = 21
-FILESYSTEM_JSON = "filesystem.json"
+FILESYSTEM_JSON = os.path.join(script_dir, "filesystem.json")
 
 class FTPApiServer:
     async def __init__(self, host, port,users):
@@ -31,6 +37,8 @@ class FTPApiServer:
         self.file_system = FileSystem()
         self.cwd="/"
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.dfs = DistributedFileSystem()
+
         self.node = Server(storage=ForgetfulStorage())
         await self.node.listen(port)
         #Aqui debe ir el ip y el puerto del nodo kademlia al que lo vas a conectar
@@ -49,6 +57,7 @@ class FTPApiServer:
         self.server_socket.bind((self.host, self.port))
         self.server_socket.listen(5)
         print(f"Servidor FTP iniciado en {self.host}:{self.port}")
+
         while True:
             client_socket, client_address = self.server_socket.accept()
             print(f"Conexión establecida con {client_address}")
@@ -68,6 +77,12 @@ class FTPApiServer:
             print(f"Comando recibido: {data.strip()}")
             command, *args = data.split()
             command = command.upper()
+
+            if command in ["STOR", "STOU", "MKD", "DELE", "RMD", "RNTO","RNFR"]:
+                
+                if not self.dfs.request_global_lock():
+                    client_socket.sendall(b"550 Conflict: File or directory is in use.\r\n")
+                    continue  # No permitir la operación si el lock ya existe
 
             if command == "USER":
                 username = args[0]
@@ -237,7 +252,7 @@ class FTPApiServer:
                             content = file_buffer.getvalue()  # se mantiene como bytes
                         else:
                             content = file_buffer.getvalue().decode()  # se convierte a texto
-
+                        
                         # Obtener el directorio virtual actual donde se almacenará el archivo
                         parent_directory = self.file_system.resolve_path(current_dir)
                         if parent_directory is None or not isinstance(parent_directory, Directory):
@@ -251,6 +266,7 @@ class FTPApiServer:
                             client_socket.sendall(b'226 Transfer complete.\r\n')
                     else:
                         client_socket.sendall(b'550 Error: Only files are allowed.\r\n')
+                        # Procesar el comando en el sistema distribuido
                 except Exception as e:
                     client_socket.sendall(b'550 Failed to store file.\r\n')
                     print(f'Error storing file: {e}')
@@ -458,6 +474,7 @@ class FTPApiServer:
 
 
             elif command == "RNFR":
+            
                 filename = args[0]
                 resolved_path = f"{current_dir}/{filename}".replace("//", "/")
 
@@ -656,12 +673,13 @@ class FTPApiServer:
                     client_socket.sendall(b"Current directory: " + current_dir.encode('utf-8') + b"\r\n")
                     client_socket.sendall(b"211 End of status.\r\n")
                 else:  # STAT with a file/directory argument
-                    target = os.path.join(current_dir, parts[0])
-                    if os.path.exists(target):
-                        details = self.get_file_info(target)
-                        client_socket.sendall(b"213 " + details.encode('utf-8') + b"\r\n")
-                    else:
-                        client_socket.sendall(b"550 File or directory not found.\r\n")
+                    # target = os.path.join(current_dir, parts[0])
+                    # if os.path.exists(target):
+                    #     details = self.get_file_info(target)
+                    #     client_socket.sendall(b"213 " + details.encode('utf-8') + b"\r\n")
+                    # else:
+                    #     client_socket.sendall(b"550 File or directory not found.\r\n")
+                    client_socket.sendall(b"503 Command not implemented.\r\n")
 
 
             elif command =="HELP":
@@ -713,6 +731,11 @@ class FTPApiServer:
                 print(f"comando no implementado {command}")
 
             self.file_system.save_to_json(FILESYSTEM_JSON)
+
+            if command in ["STOR", "STOU", "MKD", "DELE", "RMD", "RNTO","RNFR"]:
+                print("VENGO A REPLICAR")
+                self.dfs.save_filesystem(self.dfs.load_filesystem())
+                self.dfs.release_global_lock()
 
         client_socket.close()
         print("Conexión cerrada")
