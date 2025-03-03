@@ -59,6 +59,7 @@ class Directory:
         self.contents = {}  # Diccionario para almacenar archivos y subdirectorios
         self.created_at = time.time()
         self.permissions = permissions
+        self.size=0
         self.nlink = 2 
 
     def list_contents(self):
@@ -70,7 +71,7 @@ class Directory:
             "type": "directory",
             "name": self.name,
             "created_at": self.created_at,
-            "size": 0.0,
+            "size": self.size,
             "permissions": stat.filemode(self.permissions),
             "nlink": self.nlink,
             "mtime": time.strftime('%b %d %H:%M', time.gmtime(self.created_at)),
@@ -82,7 +83,6 @@ class Directory:
         """Crea un directorio a partir de un diccionario JSON."""
         directory = Directory(data["name"])
         directory.created_at = data["created_at"]
-        directory.permissions = int(data["permissions"], 8)
         directory.nlink = data["nlink"]
         for name, item in data["contents"].items():
             if item["type"] == "file":
@@ -199,14 +199,22 @@ class FileSystem:
 
     def save_to_json(self, filename):
         """Guarda el sistema de archivos en un archivo JSON."""
-        with open(filename, "w") as f:
-            json.dump(self.root.to_dict(), f, indent=4)
+        data = self.root.to_dict()  # Convertir sistema de archivos a diccionario
+        data["last_update"] = time.time()  # Agregar marca de tiempo
+        with open(filename, "wb") as f:
+            json.dump(data, f, indent=4)
 
     def load_from_json(self, filename):
         """Carga el sistema de archivos desde un archivo JSON."""
 
-        with open(filename, "r") as f:
-            data = json.load(f)
-            self.root = Directory.from_dict(data)
-            self.path_map = {"/": self.root}  # Reinicializar el mapa de rutas
-            print("Sistema de archivos cargado exitosamente.")
+        """Carga el sistema de archivos desde un archivo JSON."""
+        try:
+            with open(filename, "rb") as f:
+                data = json.load(f)
+                self.root = Directory.from_dict(data)  # Asegurar acceso a "root"
+                self.path_map = {"/": self.root}  # Reiniciar mapa de rutas
+                print("Sistema de archivos cargado exitosamente.")
+        except FileNotFoundError:
+            print("Archivo JSON no encontrado, creando sistema de archivos nuevo.")
+        except json.JSONDecodeError as e:
+            print(f"Error al leer JSON: {e}, creando sistema de archivos nuevo.")
