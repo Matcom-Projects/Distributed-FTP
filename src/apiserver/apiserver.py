@@ -1,3 +1,7 @@
+import asyncio
+import argparse
+from kademlia.network import Server
+from kademlia.storage import ForgetfulStorage
 import os
 import io
 import socket
@@ -16,7 +20,7 @@ PORT = 21
 FILESYSTEM_JSON = "filesystem.json"
 
 class FTPApiServer:
-    def __init__(self, host, port,users):
+    async def __init__(self, host, port,users):
         self.host = host
         self.port = port
         self.data_port=0
@@ -27,6 +31,12 @@ class FTPApiServer:
         self.file_system = FileSystem()
         self.cwd="/"
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.node = Server(storage=ForgetfulStorage())
+        await self.node.listen(port)
+        #Aqui debe ir el ip y el puerto del nodo kademlia al que lo vas a conectar
+        #Haz que reciba eso como argumento(como mismo recibe el HOST este .py)
+        await self.node.bootstrap([(bootstrap_ip, bootstrap_port)])
+        
          # Cargar sistema de archivos si existe un JSON guardado
         try:
             self.file_system.load_from_json(FILESYSTEM_JSON)
