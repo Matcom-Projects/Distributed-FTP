@@ -1,9 +1,11 @@
 {
     "type": "directory",
     "name": "/",
-    "created_at": 1739751424.6355622,
+    "created_at": 1740039252.9370837,
+    "size": 0,
     "permissions": "?rwxr-xr-x",
     "nlink": 2,
-    "mtime": "Feb 17 00:17",
-    "contents": {}
+    "mtime": "Feb 20 08:14",
+    "contents": {},
+    "last_update": 1740039463.1347084
 }
