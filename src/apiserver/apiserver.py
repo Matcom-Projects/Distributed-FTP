@@ -6,6 +6,7 @@ import os
 import io
 import socket
 import threading
+import json
 import platform
 import uuid
 import time
@@ -26,7 +27,7 @@ PORT = 21
 FILESYSTEM_JSON = os.path.join(script_dir, "filesystem.json")
 
 class FTPApiServer:
-    async def __init__(self, host, port,users):
+    def __init__(self, host, port,users):
         self.host = host
         self.port = port
         self.data_port=0
@@ -35,25 +36,48 @@ class FTPApiServer:
         self.users=users
         self.path_to_change=None
         self.file_system = FileSystem()
-        self.cwd="/"
+        self.   cwd="/"
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.dfs = DistributedFileSystem()
+        self.loop = None  # Event loop para asyncio
+        self.thread = None  # Hilo para el event loop
 
         self.node = Server(storage=ForgetfulStorage())
-        await self.node.listen(port)
-        #Aqui debe ir el ip y el puerto del nodo kademlia al que lo vas a conectar
-        #Haz que reciba eso como argumento(como mismo recibe el HOST este .py)
-        await self.node.bootstrap([(bootstrap_ip, bootstrap_port)])
-        
-         # Cargar sistema de archivos si existe un JSON guardado
+    
+    @classmethod
+    async def create(cls, host, port, users):
+        """Método de clase asíncrono para crear una instancia correctamente"""
+        instance = cls(host, port, users)
+
+        await instance.node.listen(port)
+        if len(sys.argv) >= 3:
+            await instance.node.bootstrap([(sys.argv[2], port)])
+
+        # Cargar sistema de archivos si existe un JSON guardado
         try:
-            self.file_system.load_from_json(FILESYSTEM_JSON)
+            instance.file_system.load_from_json(FILESYSTEM_JSON)
             print("[INFO] Sistema de archivos cargado desde JSON.")
         except:
-            self.file_system.save_to_json(FILESYSTEM_JSON)
+            instance.file_system.save_to_json(FILESYSTEM_JSON)
             print("[INFO] No se encontró un archivo JSON, creando nuevo sistema de archivos.")
 
+        instance.start()
+        return instance
+    
+    def start_loop(self):
+        """Inicia el event loop en un hilo separado."""
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        self.loop.run_forever()
+    
     def start(self):
+        """Inicia el servidor en un hilo y el event loop en otro."""
+        # Inicia el event loop en un hilo separado
+        self.thread = threading.Thread(target=self.start_loop, daemon=True)
+        self.thread.start()
+
+        # Configura el servidor tradicional
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.bind((self.host, self.port))
         self.server_socket.listen(5)
         print(f"Servidor FTP iniciado en {self.host}:{self.port}")
@@ -61,15 +85,66 @@ class FTPApiServer:
         while True:
             client_socket, client_address = self.server_socket.accept()
             print(f"Conexión establecida con {client_address}")
-            threading.Thread(target=self.handle_client, args=(client_socket,client_address)).start()
 
-    def handle_client(self, client_socket,client_address):
+            # Ejecuta la corrutina en el event loop del hilo secundario
+            future = asyncio.run_coroutine_threadsafe(
+                self.handle_client(client_socket, client_address),
+                self.loop
+            )
+            # Opcional: Maneja excepciones si es necesario
+            future.add_done_callback(lambda f: f.exception() if f.exception() else None)
+
+    # async def start(self):
+
+    #     # Crea un servidor asíncrono
+    #     self.server = await asyncio.start_server(
+    #         self.handle_client,
+    #         self.host,
+    #         self.port
+    #     )
+    #     print(f"Servidor FTP iniciado en {self.host}:{self.port}")
+
+    #     async with self.server:
+    #         await self.server.serve_forever()
+    #     # self.server_socket.bind((self.host, self.port))
+    #     # self.server_socket.listen(5)
+    #     # print(f"Servidor FTP iniciado en {self.host}:{self.port}")
+
+    #     # while True:
+    #     #     client_socket, client_address = self.server_socket.accept()
+    #     #     print(f"Conexión establecida con {client_address}")
+    #     #     threading.Thread(target=self.handle_client, args=(client_socket,client_address)).start()
+
+    async def handle_client(self, client_socket,client_address):
         current_dir = self.cwd
         client_socket.send(b"220 FTP service ready.\r\n")
         authenticated = False
         username = ''
-        
+
         while True:
+            try:
+                resp= await self.node.get("FilesystemJSON")
+                if resp:
+                    # Leer el primer JSON
+                    with open(FILESYSTEM_JSON, "r") as file1:
+                        data1 = json.load(file1)
+
+                    # Leer el segundo JSON
+                    with open(resp, "r") as file2:
+                        data2 = json.load(file2)
+
+                    # Fusionar (data2 sobrescribe data1 si hay claves repetidas)
+                    data1.update(data2)
+
+                    # Guardar el resultado en archivo1.json
+                    with open(FILESYSTEM_JSON, "w") as file1:
+                        json.dump(data1, file1, indent=4)
+
+                self.file_system.load_from_json(FILESYSTEM_JSON)
+            except Exception as e:
+                print("Error al cargar archivo al principio de bucle")
+
+
             data = client_socket.recv(1024).decode()
             if not data:
                 break
@@ -730,11 +805,11 @@ class FTPApiServer:
                 client_socket.sendall(b"502 Command not implemented.\r\n")
                 print(f"comando no implementado {command}")
 
-            self.file_system.save_to_json(FILESYSTEM_JSON)
-
             if command in ["STOR", "STOU", "MKD", "DELE", "RMD", "RNTO","RNFR"]:
                 print("VENGO A REPLICAR")
+                self.file_system.save_to_json(FILESYSTEM_JSON)
                 self.dfs.save_filesystem(self.dfs.load_filesystem())
+                await self.node.set("FilesystemJSON",(self.dfs.load_filesystem()).encode())
                 self.dfs.release_global_lock()
 
         client_socket.close()
@@ -771,9 +846,13 @@ class FTPApiServer:
             mtime = time.ctime(os.path.getmtime(path))
             return f"{path} Size: {size} bytes, Last Modified: {mtime}"
 
-if __name__ == "__main__":
-    ftp_server = FTPApiServer(HOST, PORT,{'user': 'user1234'})
+
+async def main():
+    ftp_server = await FTPApiServer.create(HOST, PORT,{'user': 'user1234'})
     try:
-        ftp_server.start()
+        await ftp_server.start()
     except KeyboardInterrupt:
         print("Servidor detenido")
+
+if __name__ == "__main__":
+    asyncio.run(main())
