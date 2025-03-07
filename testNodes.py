@@ -12,33 +12,22 @@ import socket
 FILESYSTEM_JSON = "filesystem.json"
 class File:
     """Representa un archivo en el sistema de archivos."""
-    def __init__(self, name, content="",permissions=0o644):
+    def __init__(self, name,key ,content="",permissions=0o644):
         self.name = name
         self.content = content
+        self.key=key
         self.created_at = time.time()
         self.modified_at = time.time()
         self.permissions = permissions
         self.nlink = 1
         self.size = len(content)
 
-    def read(self):
-        return self.content
-
-    def write(self, new_content):
-        self.content = new_content
-        self.modified_at = time.time()
-        self.size = len(new_content)
-
-    def append(self, extra_content):
-        self.content += extra_content
-        self.modified_at = time.time()
-        self.size += len(extra_content)
-
     def to_dict(self):
         """Convierte el archivo en un diccionario para serialización JSON."""
         return {
             "type": "file",
             "name": self.name,
+            "key": self.key,
             "content": self.content,
             "created_at": self.created_at,
             "modified_at": self.modified_at,
@@ -51,7 +40,7 @@ class File:
     @staticmethod
     def from_dict(data):
         """Crea un archivo a partir de un diccionario JSON."""
-        file = File(data["name"], data["content"])
+        file = File(data["name"], data["key"])
         file.created_at = data["created_at"]
         file.modified_at = data["modified_at"]
         file.permissions = int(data["permissions"], 8)
@@ -138,34 +127,17 @@ class FileSystem:
             return f"Directorio '{path}' creado exitosamente."
         return "Error: No se pudo crear el directorio."
 
-    def touch(self, path):
+    def touch(self, path,key):
         """Crea un archivo vacío."""
         parent_path, file_name = path.rsplit("/", 1) if "/" in path else ("", path)
         parent = self.resolve_path(parent_path)
 
         if parent and isinstance(parent, Directory) and file_name not in parent.contents:
-            new_file = File(file_name)
+            new_file = File(file_name,key)
             parent.contents[file_name] = new_file
             self.path_map[path] = new_file
             return f"Archivo '{path}' creado exitosamente."
         return "Error: No se pudo crear el archivo."
-
-    def write_file(self, path, content):
-        """Escribe contenido en un archivo."""
-        file = self.resolve_path(path)
-
-        if file and isinstance(file, File):
-            file.write(content)
-            return f"Contenido escrito en '{path}'."
-        return "Error: Archivo no encontrado."
-
-    def read_file(self, path):
-        """Lee el contenido de un archivo."""
-        file = self.resolve_path(path)
-
-        if file and isinstance(file, File):
-            return file.read()
-        return "Error: Archivo no encontrado."
 
     def rm(self, path):
         """Elimina un archivo o directorio."""
