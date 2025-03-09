@@ -1,4 +1,4 @@
-FROM ubuntu
+FROM base-image:latest
 
 WORKDIR /app
 
@@ -10,4 +10,4 @@ COPY routing_client.sh /app
 
 RUN chmod +x /app/routing_client.sh
 
-ENTRYPOINT [ "/app/routing_client.sh" ]
+ENTRYPOINT [ "/bin/sh", "-c","/app/routing_client.sh" ]

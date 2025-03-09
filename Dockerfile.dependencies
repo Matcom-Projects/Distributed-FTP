@@ -1,16 +1,8 @@
 # Use official Python image as a base
 FROM python:3.10
 
-# Set the working directory
-WORKDIR /app
-
-# Copy files into the container
-COPY testNodes.py /app/
-COPY kademlia /app/kademlia
+# Set the working director
 
 RUN pip install rpcudp filelock rpyc
+RUN apt-get update && apt-get install -y iproute2
 # Expose ports for the nodes
-EXPOSE 8468-8499
-
-# Command to run the node (arguments are provided at runtime)
-ENTRYPOINT ["python", "testNodes.py"]
