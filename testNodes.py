@@ -1,7 +1,8 @@
 import asyncio
 import argparse
 import os
-
+import io
+import zipfile
 from kademlia.network import Server
 from kademlia.storage import ForgetfulStorage
 import platform
@@ -9,6 +10,9 @@ import time
 import stat
 import json
 import socket
+import uuid
+
+
 FILESYSTEM_JSON = "filesystem.json"
 class File:
     """Representa un archivo en el sistema de archivos."""
@@ -43,7 +47,7 @@ class File:
         file = File(data["name"], data["key"])
         file.created_at = data["created_at"]
         file.modified_at = data["modified_at"]
-        file.permissions = int(data["permissions"], 8)
+        file.permissions = 1
         file.nlink = data["nlink"]
         file.size = data["size"]
         return file
@@ -242,6 +246,8 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
     restart_point = 0
     path_to_change = None
     current_dir = "/"
+    pORT_port=None
+    pORT_ip=None
 
     # Define users dictionary - you might want to move this to a configuration file
     users = {'user': 'user1234'} 
@@ -280,6 +286,17 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
         if not data:
             print(f"Connection closed from client {addr}")
             break
+        
+        jsonKad = await node.get(FILESYSTEM_JSON)
+        
+        try:
+            if jsonKad:
+                with open(FILESYSTEM_JSON, "w") as file:
+                    json.dump(json.loads(jsonKad.decode().replace("'", '"')), file, indent=4)
+                fileSystem.load_from_json(FILESYSTEM_JSON)
+            print("SE ACTUALIZO EL SISTEMA DE FICHEROS")
+        except Exception as e:
+            print(f"Error al recuperar el fileSystem:  {e}")
 
         try:
             #AQUIIIIIIIIIIII <<<<=========<<<<<<<<<<<<<<<============
@@ -295,16 +312,18 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
         arg = args[0] if args else None
         print (command)
 
-        if command == "USER":
-            username = args
+        if action == "USER":
+            username = arg
             if username in users:
+                print("Usuario correcto")
                 writer.write(b'331 User name okay, need password.\r\n')
             else:
+                print("Usuario incorrecto")
                 writer.write(b'530 User incorrect.\r\n')
             await writer.drain()
             
-        elif command == "PASS":
-            password = args
+        elif action == "PASS":
+            password = arg
             if users.get(username) == password:
                 authenticated = True
                 writer.write(b'230 User logged in.\r\n')
@@ -312,17 +331,17 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                 writer.write(b'530 Password incorrect.\r\n')
             await writer.drain()
 
-        elif not authenticated:
-            writer.write(b'530 Not logged in.\r\n')
-            await writer.drain()
+        # elif not authenticated:
+        #     writer.write(b'530 Not logged in.\r\n')
+        #     await writer.drain()
 
-        elif command == "PWD":
+        elif action == "PWD":
             writer.write(f'257 "{current_dir}"\r\n'.encode())
             await writer.drain()
 
-        elif command == "CWD":
-            if args:
-                new_dir = args
+        elif action == "CWD":
+            if arg:
+                new_dir = arg
                 resolved_path = f"{current_dir}/{new_dir}".replace("//", "/")
                 if fileSystem.resolve_path(resolved_path):
                     current_dir = resolved_path
@@ -333,9 +352,9 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                 writer.write(b"501 Syntax error in parameters or arguments.\r\n")
             await writer.drain()
 
-        elif command == "MKD":
+        elif action == "MKD":
             try:
-                dir_name = args
+                dir_name = arg
                 resolved_path = f"{current_dir}/{dir_name}".replace("//", "/")
                 result = fileSystem.mkdir(resolved_path)
                 
@@ -357,7 +376,7 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                 print(f"Error in MKD: {e}")
             await writer.drain()
         
-        elif command == "ACCT":
+        elif action == "ACCT":
             try:
                 # Start with account status header
                 writer.write(b'211-Account status.\r\n')
@@ -383,12 +402,66 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
             except Exception as e:
                 writer.write(b'500 Error processing account information.\r\n')
                 await writer.drain()
-                print(f"Error in ACCT command: {e}")
+                print(f"Error in ACCT action: {e}")
         
-        elif command == "LIST":
+        elif command == "APPE":
+                filename = args[0]
+                resolved_path = f"{current_dir}/{filename}".replace("//", "/")
+
+                try:
+                    writer.write(b'150 File status okay; about to open data connection.\r\n')
+                    if passive_socket:
+                        await passive_socket.start_serving()
+
+                    # Recibir los datos del cliente en memoria
+                    file_buffer = io.BytesIO()
+                    while True:
+                        up_data = reader_N.read(1024)
+                        if not up_data:
+                            break
+                        file_buffer.write(up_data)
+                    writer_N.close()
+                    await writer_N.wait_closed()
+
+                    file_buffer.seek(0)
+                    content = file_buffer.getvalue().decode() if data_type == "ASCII" else file_buffer.getvalue()
+
+                    # Verificar si el archivo existe en el sistema de archivos virtual
+                    file = fileSystem.resolve_path(resolved_path)
+
+                    if file and isinstance(file, File):
+                        existing_content = await node.get(file.key)  # Agregar contenido al final del archivo existente
+                        concatenated_content = existing_content + content
+                        await node.set(file.key, concatenated_content)
+                    else:
+                        # Si el archivo no existe, crearlo
+                        parent_directory = fileSystem.resolve_path(current_dir)
+                        if parent_directory and isinstance(parent_directory, Directory):
+                            new_file = File(name=filename, content=content,key=filename+parent_directory.name)
+                            parent_directory.contents[filename] = new_file
+                            fileSystem.path_map[resolved_path] = new_file
+                            await node.set(new_file.key, content)
+                        else:
+                            writer.write(b'550 Failed to append file.\r\n')
+                            print(f'Error appending file: {e}')
+                            
+                            
+                    writer.write(b'226 Append successful.\r\n')
+                    writer_N.close()
+                    await writer_N.wait_closed()
+                except Exception as e:
+                    writer.write(b'550 Failed to append file.\r\n')
+                    print(f'Error appending file: {e}')
+                    
+
+        elif action == "LIST":
             try:
+                if passive_socket:
+                    await passive_socket.start_serving()
+                if pORT_ip and pORT_port:
+                    reader_N, writer_N = await asyncio.open_connection(pORT_ip, pORT_port)
                 writer.write(b'150 Here comes the directory listing\r\n')
-                await writer.drain()
+                
                 
                 # Determine which directory to list
                 list_path = current_dir
@@ -401,11 +474,11 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                 
                 if not directory or not isinstance(directory, Directory):
                     writer.write(b"550 Failed to list directory.\r\n")
-                    await writer.drain()
+                    
                     continue
 
                 if writer_N:
-                    await passive_socket.start_serving()
+                                        
                     file_details = ['Permissions  Links  Size           Last-Modified  Name']
                     for item in directory.contents.values():
                         item_data = item.to_dict()
@@ -430,14 +503,215 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                     passive_socket = None
                     print("cerrada la conexion")
                     writer.write(b'226 Directory send OK.\r\n')
+                    writer_N=None
+                    reader_N=None
+                    pORT_ip=None
+                    pORT_port=None
+                    
                 else:
                     writer.write(b'425 Use PASV first.\r\n')
                 
             except Exception as e:
                 writer.write(f'550 Failed to list directory: {e}\r\n'.encode())
                 print(f'Error listing directory: {e}')
-            
-            await writer.drain()
+        elif action == "RETR":
+                try:
+                    filename = args[0]
+                    resolved_path = f"{current_dir}/{filename}".replace("//", "/")
+                    item = fileSystem.resolve_path(resolved_path)
+
+                    if not item:
+                        writer.write(b'550 File or directory not found.\r\n')
+                        continue
+
+                    if isinstance(item, File):
+                        # Si es un archivo, se transfiere normalmente
+                        writer.write(b'150 File status okay, about to open data connection.\r\n')
+                        await passive_socket.start_serving()
+                        
+                        parent_directory = fileSystem.resolve_path(current_dir)
+                        
+                        file_key= item.key
+                        
+                        #!Aqui debe ir el codigo nuevo para obtener el contenido del archivo del nodo kademlia
+                        print("antes de La key")
+                        file_buffer=io.BytesIO()
+                        index=0
+                        file_content = await node.get(f"{file_key} {index}")
+                        while file_content:
+                            file_buffer.write(file_content)
+                            
+                            index+=1
+                            file_content = await node.get(f"{file_key} {index}")
+                        
+                        file_buffer.seek(0)
+                        file_content=file_buffer.getvalue()
+                        print("LLego la key")
+                        if data_type != 'Binary':
+                            file_content = file_content.decode()
+                        
+                        chunk_size = 1024
+                        start_position = restart_point
+                        restart_point = 0  # Resetear el punto de reinicio
+
+                        for i in range(start_position, len(file_content), chunk_size):
+                            writer_N.write(file_content[i:i + chunk_size])
+
+                        
+
+                        writer_N.close()
+                        await writer_N.wait_closed()
+                        passive_socket = None
+                        writer.write(b'226 Directory transfer complete.\r\n')
+
+                except Exception as e:
+                    writer.write(b'550 Failed to retrieve file or directory.\r\n')
+                    print(f'Error retrieving file or directory: {e}')
+        elif action == "STOR":
+            try:
+                filename = args[0]
+
+                if '.' in filename:
+                    # Construir la ruta virtual completa (por ejemplo, "/current_dir/archivo.txt")
+                    resolved_path = f"{current_dir}/{filename}".replace("//", "/")
+                    
+                    writer.write(b'150 File status okay; about to open data connection.\r\n')
+                    await passive_socket.start_serving()
+
+                    # Recibir el archivo en un buffer de memoria
+                    file_buffer = io.BytesIO()
+                    while True:
+                        up_data = await reader_N.read(1024)
+                        if not up_data:
+                            break
+                        file_buffer.write(up_data)
+                    
+
+                    file_buffer.seek(0)
+                    # Convertir el contenido según el modo de transferencia (ASCII o Binary)
+                    
+                    content = file_buffer.getvalue()  # se mantiene como bytes
+                    
+                    
+                    
+                     
+                    
+                    # Obtener el directorio virtual actual donde se almacenará el archivo
+                    parent_directory = fileSystem.resolve_path(current_dir)
+                    if parent_directory is None or not isinstance(parent_directory, Directory):
+                        writer.write(b'550 Failed to store file.\r\n')
+                    else:
+                        
+                        #!Se debe analizar bien que key mandar aqui
+                        file_key=filename+parent_directory.name
+                        # Crear el objeto File en memoria
+                        new_file = File(name=filename,content="dummy",key = file_key)
+                        
+                        
+                        # Guardarlo en la estructura del directorio virtual
+                        parent_directory.contents[filename] = new_file
+                        fileSystem.path_map[resolved_path] = parent_directory
+                        
+                        fileSystem.save_to_json(FILESYSTEM_JSON)
+                        print("se guardo el json")
+                        
+                        chunk_size = 1024
+                        #ahora itero por pedazos de bytes par ir guardandolos en en la red de kademlia
+                        count=0
+                        for i in range(0, len(content), chunk_size):
+                            chunk = content[i:i + chunk_size]
+                            chunk_key = f"{file_key} {count}"
+                            await node.set(chunk_key, chunk)
+                            count+=1
+                        
+                        
+                        #!hay que guardar tambien el json del fileSystem
+                        with open(FILESYSTEM_JSON, "r") as file:
+                            data = json.load(file)
+                        await node.set(FILESYSTEM_JSON, str(data).encode())
+                        
+                        writer.write(b'226 Transfer complete.\r\n')
+                else:
+                    writer.write(b'550 Error: Only files are allowed.\r\n')
+                    # Procesar el comando en el sistema distribuido
+                if writer_N:
+                    writer_N.close()
+                    await writer_N.wait_closed()
+                    writer_N=None
+                    reader_N=None
+                    pORT_ip=None
+                    pORT_port=None
+            except Exception as e:
+                writer.write(b'550 Failed to store file.\r\n')
+                
+                print(f'Error storing file: {e}')
+                if writer_N:
+                    writer_N.close()
+                    await writer_N.wait_closed()
+        elif action == "STOU":
+            try:
+                filename = args[0]
+                name, ext = filename.rsplit(".", 1)
+                if '.' in filename:
+                    
+                    filename = str(name)+ str(uuid.uuid1())
+                    filename+= str(ext)
+                    # Construir la ruta virtual completa (por ejemplo, "/current_dir/archivo.txt")
+                    resolved_path = f"{current_dir}/{filename}".replace("//", "/")
+                    
+                    writer.write(b'150 File status okay; about to open data connection.\r\n')
+                    await passive_socket.start_serving()
+
+                    # Recibir el archivo en un buffer de memoria
+                    file_buffer = io.BytesIO()
+                    while True:
+                        up_data = await reader_N.read(1024)
+                        if not up_data:
+                            break
+                        file_buffer.write(up_data)
+                    
+
+                    file_buffer.seek(0)
+                    # Convertir el contenido según el modo de transferencia (ASCII o Binary)
+                    if data_type == 'Binary':
+                        content = file_buffer.getvalue()  # se mantiene como bytes
+                    else:
+                        content = file_buffer.getvalue().decode()  # se convierte a texto
+                    
+                    # Obtener el directorio virtual actual donde se almacenará el archivo
+                    parent_directory = fileSystem.resolve_path(current_dir)
+                    if parent_directory is None or not isinstance(parent_directory, Directory):
+                        writer.write(b'550 Failed to store file.\r\n')
+                    else:
+                        
+                        file_key=filename+parent_directory.name
+                        # Crear el objeto File en memoria
+                        new_file = File(name=filename,content=content,key = file_key)
+                        
+                        
+                        # Guardarlo en la estructura del directorio virtual
+                        parent_directory.contents[filename] = new_file
+                        fileSystem.path_map[resolved_path] = new_file
+                        
+                        #!Se debe analizar bien que key mandar aqui
+                        await node.set(file_key, content)
+                        
+                        #!hay que guardar tambien el json del fileSystem
+                        with open(FILESYSTEM_JSON, "r") as file:
+                            data = json.load(file)
+                        await node.set(FILESYSTEM_JSON, str(data).encode())
+                        
+                        writer.write(b'226 Transfer complete.\r\n')
+                else:
+                    writer.write(b'550 Error: Only files are allowed.\r\n')
+                    # Procesar el comando en el sistema distribuido
+            except Exception as e:
+                writer.write(b'550 Failed to store file.\r\n')
+                
+                print(f'Error storing file: {e}')
+                if writer_N:
+                    writer_N.close()
+                    await writer_N.wait_closed()
 
         elif action == "PASV":
             passive_socket = await asyncio.start_server(
@@ -456,7 +730,23 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
 
             await writer.drain()
 
-        elif command == "REIN":
+        elif action =="PORT":
+            try:
+                data = args[0].split(',')
+                host = '.'.join(data[:4])
+                port = int(data[4]) * 256 + int(data[5])
+                
+                pORT_ip=host
+                pORT_port=port
+                
+                writer.write(b'200 PORT action successful.\r\n')
+                print('200 PORT action successful.')
+                      
+            except Exception as e:
+                writer.write(b'425 Can not open data connection.\r\n')
+                print(f'Error opening data connection: {e}')
+                
+        elif action == "REIN":
             # Reset session state variables to default values
             authenticated = False
             username = ''
@@ -468,11 +758,13 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
             # Clean up any active data connections
             # await close_data_connection()
             # NECESITAS CERRAR LAS CONEXIONES EN CASO DE ABRIRLAS
-            
+            if writer_N:
+                writer_N.close()
+                await writer_N.wait_closed()
             writer.write(b'220 Service ready for new user.\r\n')
             await writer.drain()
 
-        elif command == "CDUP":
+        elif action == "CDUP":
             # If already at root directory, can't go up further
             if current_dir == "/":
                 writer.write(b'550 Already at root directory.\r\n')
@@ -494,9 +786,9 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                     writer.write(b'550 Failed to change directory.\r\n')
             await writer.drain()
 
-        elif command == "TYPE":
+        elif action == "TYPE":
             try:
-                data_type_arg = args.upper()
+                data_type_arg = arg.upper()
                 if data_type_arg == 'A':
                     data_type = 'ASCII'
                     writer.write(b'200 Type set to ASCII.\r\n')
@@ -507,10 +799,10 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                     writer.write(b'504 Type not implemented.\r\n')
             except Exception as e:
                 writer.write(b'501 Syntax error in parameters.\r\n')
-                print(f"Error in TYPE command: {e}")
+                print(f"Error in TYPE action: {e}")
             await writer.drain()
 
-        elif command == "STRU":
+        elif action == "STRU":
             try:
                 structure_type = args.upper()
                 if structure_type == 'F':
@@ -521,10 +813,10 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                     writer.write(b'504 Structure not implemented.\r\n')
             except Exception as e:
                 writer.write(b'501 Syntax error in parameters.\r\n')
-                print(f"Error in STRU command: {e}")
+                print(f"Error in STRU action: {e}")
             await writer.drain()
 
-        elif command == "MODE":
+        elif action == "MODE":
             try:
                 mode_type = args.upper()
                 if mode_type == 'S':
@@ -535,10 +827,10 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                     writer.write(b'504 Mode not implemented.\r\n')
             except Exception as e:
                 writer.write(b'501 Syntax error in parameters.\r\n')
-                print(f"Error in MODE command: {e}")
+                print(f"Error in MODE action: {e}")
             await writer.drain()
 
-        elif command == "REST":
+        elif action == "REST":
             try:
                 # Parse the restart position
                 byte_offset = int(args)
@@ -548,10 +840,10 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                 writer.write(b"501 Syntax error in parameters - must be a number.\r\n")
             except Exception as e:
                 writer.write(b"501 Syntax error in parameters.\r\n")
-                print(f"Error in REST command: {e}")
+                print(f"Error in REST action: {e}")
             await writer.drain()
 
-        elif command == "RNFR":
+        elif action == "RNFR":
             try:
                 filename = args
                 resolved_path = f"{current_dir}/{filename}".replace("//", "/")
@@ -560,7 +852,7 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                 item_to_rename = fileSystem.resolve_path(resolved_path)
 
                 if item_to_rename:
-                    # Store the path for the subsequent RNTO command
+                    # Store the path for the subsequent RNTO action
                     path_to_change = resolved_path
                     writer.write(b"350 Ready for RNTO.\r\n")
                 else:
@@ -570,14 +862,14 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                 print(f"Error in RNFR: {e}")
             await writer.drain()
 
-        elif command == "RNTO":
+        elif action == "RNTO":
             if not path_to_change:
                 writer.write(b"503 RNFR required before RNTO.\r\n")
                 await writer.drain()
                 continue
 
             try:
-                new_name = args
+                new_name = arg
                 old_path = path_to_change
 
                 # Calculate parent directory from old path
@@ -633,9 +925,9 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                 print(f"Error renaming file/directory: {e}")
             await writer.drain()
 
-        elif command == "RMD":
+        elif action == "RMD":
             try:
-                dir_name = args
+                dir_name = arg
                 # Build the complete virtual path for the directory
                 resolved_path = f"{current_dir}/{dir_name}".replace("//", "/")
                 
@@ -667,9 +959,9 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                 print(f"Error in RMD: {e}")
             await writer.drain()
 
-        elif command == "DELE":
+        elif action == "DELE":
             try:
-                filename = args
+                filename = arg
                 # Build the complete virtual path for the file
                 resolved_path = f"{current_dir}/{filename}".replace("//", "/")
                 
@@ -690,6 +982,8 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                         with open(FILESYSTEM_JSON, "r") as file:
                             data = json.load(file)
                         await node.set(FILESYSTEM_JSON, str(data).encode())
+                        
+                        
                         ####### ELIMINAAAAAAAR EL ARCHIVOOOO DEL NODO KADEMLIA TAMBIEEEEEEN
                         
                         writer.write(b"250 Requested file action okay, completed.\r\n")
@@ -708,29 +1002,29 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
             writer.write(f'215 {system_name} Type: L8\r\n'.encode())
             await writer.drain()
 
-        elif command =="NOOP":
+        elif action =="NOOP":
             writer.write(b"200 OK.\r\n")
             await writer.drain()
 
-        elif command == "QUIT":
+        elif action == "QUIT":
             writer.write(b"221 Closing connection, goodbye.\r\n")
             await writer.drain()
             break
 
-        elif command =="ALLO":
+        elif action =="ALLO":
             writer.write(b'200 Command not needed.\r\n')
             await writer.drain()
 
-        elif command =="SITE":
+        elif action =="SITE":
             writer.write(b"503 Command not implemented.\r\n")
             await writer.drain()
 
 
-        elif command =="SMNT":
+        elif action =="SMNT":
             writer.write(b"503 Command not implemented.\r\n")
             await writer.drain()
         
-        elif command == "STAT":
+        elif action == "STAT":
             if not args:
                 # STAT without arguments - show server status
                 writer.write(b"211-FTP Server Status:\r\n")
@@ -749,8 +1043,8 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
                 writer.write(b"503 Command not implemented.\r\n")
                 await writer.drain()
 
-        elif command =="HELP":
-                writer.write(b'214 The following commands are recognized.\r\n')
+        elif action =="HELP":
+                writer.write(b'214 The following actions are recognized.\r\n')
                 await writer.drain()
                 response=""                
                 response+='USER <SP> <nombre-usuario> <CRLF>\r\n'
@@ -803,7 +1097,7 @@ async def handle_client(reader, writer, node: Server, fileSystem:FileSystem):
             writer.write(b'211 End\r\n')
 
         else:
-            print(f"Command not implemented: {command}")
+            print(f"Command not implemented: {action}")
             writer.write(b"502 Command not implemented.\r\n")
             await writer.drain()
 

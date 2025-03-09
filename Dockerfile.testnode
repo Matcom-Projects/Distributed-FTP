@@ -7,9 +7,14 @@ WORKDIR /app
 # Copy files into the container
 COPY testNodes.py /app/
 COPY kademlia /app/kademlia
+COPY server.sh /app/ 
+
+# Ensure the script has execution permissions
+RUN chmod +x /app/server.sh
+
 
 # Expose ports for the nodes
 EXPOSE 8468-8499
 
 # Command to run the node (arguments are provided at runtime)
-ENTRYPOINT ["python", "testNodes.py"]
+ENTRYPOINT ["/bin/sh", "-c", "/app/server.sh $@ && exec python testNodes.py $@ "]
